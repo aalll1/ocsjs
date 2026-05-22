@@ -1,4 +1,14 @@
-## [4.13.8](https://github.com/ocsjs/ocsjs/compare/4.13.7...4.13.8) (2026-05-22)
+## [4.13.9](https://github.com/aalll1/ocsjs/compare/4.13.8...4.13.9) (2026-05-22)
+
+
+### Bug Fixes
+
+* **script:** 修复国开自动播放不触发（oncomplete未调用main） ([4a288d3](https://github.com/aalll1/ocsjs/commit/4a288d3))
+* **script:** 修复国开倍速设置失效（toFixed格式与MVP按钮不匹配） ([4a288d3](https://github.com/aalll1/ocsjs/commit/4a288d3))
+* **script:** 修复国开视频播放完后不自动跳转下一个 ([4a288d3](https://github.com/aalll1/ocsjs/commit/4a288d3))
+
+
+## [4.13.8](https://github.com/aalll1/ocsjs/compare/4.13.7...4.13.8) (2026-05-22)
 
 
 ### Features
