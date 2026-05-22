@@ -1,3 +1,10 @@
+## [4.14.0](https://github.com/aalll1/ocsjs/compare/4.13.9...4.14.0) (2026-05-22)
+
+### Features
+
+* **script:** 重构国开架构：模块级 state + 函数提取 + work 脚本占位，为答题模块做好准备
+
+
 ## [4.13.9](https://github.com/aalll1/ocsjs/compare/4.13.8...4.13.9) (2026-05-22)
 
 
