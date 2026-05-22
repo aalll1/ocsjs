@@ -3,7 +3,7 @@
 
 ### Features
 
-* **script:** 新增国开(ouchn)平台支持，自动播放视频并跳转任务 ([`COMMIT_HASH`](https://github.com/aalll1/ocsjs/commit/COMMIT_HASH))
+* **script:** 新增国开(ouchn)平台支持，自动播放视频并跳转任务 ([47b8482](https://github.com/aalll1/ocsjs/commit/47b8482))
 
 
 ## [4.13.7](https://github.com/ocsjs/ocsjs/compare/4.13.6...4.13.7) (2026-05-14)
