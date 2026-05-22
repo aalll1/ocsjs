@@ -20,4 +20,24 @@
 
 ## 官网及教程 [https://docs.ocsjs.com](https://docs.ocsjs.com)
 
+## 支持的平台
+
+| 平台 | 域名 |
+|------|------|
+| 超星学习通 | chaoxing.com |
+| 知到智慧树 | zhihuishu.com |
+| 中国大学MOOC | icourse163.org |
+| 职教云 | zjy |
+| 智慧职教 | icve |
+| 雨课堂 | yuketang |
+| **国开** | **lms.ouchn.cn** |
+
+## 更新日志
+
+### v4.13.8 (2026-05-22)
+
+- 新增国开（国家开放大学，lms.ouchn.cn）平台支持
+- 支持 MVP 播放器视频自动播放、倍速调节、音量控制
+- 视频结束后自动跳转下一个任务，非视频资源自动跳过
+
 </div>
