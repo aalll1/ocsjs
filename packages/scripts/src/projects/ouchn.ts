@@ -7,15 +7,18 @@ import { playbackRate, volume, restudy } from '../utils/configs';
 
 /**
  * 设置 MVP 播放器的倍速
- * 国开的 MVP 播放器通过点击倍速按钮来切换，不直接设置 video.playbackRate
+ * 通过解析按钮文本中的数值来匹配，支持 "2.0X", "1.75X", "1.5X" 等格式
  */
 function setPlaybackRate(rate: number) {
 	const rateBtns = document.querySelectorAll<HTMLElement>('.mvp-play-rate');
-	const target = rate.toFixed(2) + 'X';
+	let clicked = false;
 	rateBtns.forEach((btn) => {
-		btn.classList.toggle('active', btn.innerText.trim() === target);
+		const btnRate = parseFloat(btn.innerText.replace('X', '').trim());
+		if (Math.abs(btnRate - rate) < 0.01 && !clicked) {
+			btn.click();
+			clicked = true;
+		}
 	});
-	// 同时也设置 video 元素的 playbackRate
 	const video = document.querySelector<HTMLVideoElement>('video.vjs-tech');
 	if (video) {
 		video.playbackRate = rate;
@@ -36,7 +39,9 @@ function isVideoActivity() {
  */
 function getCurrentActivityName() {
 	const activeItem = document.querySelector('.full-screen-mode-sidebar-menu-item.active');
-	const titleEl = activeItem?.querySelector<HTMLElement>('.full-screen-mode-sidebar-menu-item-title .text-too-long');
+	const titleEl = activeItem?.querySelector<HTMLElement>(
+		'.full-screen-mode-sidebar-menu-item-title .text-too-long'
+	);
 	return titleEl?.innerText?.trim() || '未知';
 }
 
@@ -88,6 +93,8 @@ export const OUHNProject = Project.create({
 					const video = document.querySelector<HTMLVideoElement>('video.vjs-tech');
 					if (video) video.volume = v;
 				});
+				// 启动学习主循环
+				this.methods.main();
 			},
 			methods() {
 				return {
@@ -100,6 +107,22 @@ export const OUHNProject = Project.create({
 						$msg.info('国开学习脚本已启动');
 
 						/**
+						 * 播放视频：先尝试点击 MVP 播放按钮，再调用原生 play
+						 */
+						const startPlayback = async (video: HTMLVideoElement) => {
+							// 点击 MVP 播放器按钮
+							const playBtn = document.querySelector<HTMLElement>('.mvp-toggle-play');
+							if (playBtn) {
+								playBtn.click();
+								await $.sleep(500);
+							}
+							// 如果仍未播放，调用原生 play
+							if (video.paused) {
+								await playMedia(() => video.play());
+							}
+						};
+
+						/**
 						 * 学习单个视频
 						 */
 						const studyVideo = async () => {
@@ -109,7 +132,8 @@ export const OUHNProject = Project.create({
 							try {
 								const video = await waitForMedia({
 									videoSelector: 'video.vjs-tech',
-									timeout: 10000
+									timeout: 10000,
+									filter: (v) => v.readyState >= 2 || !!v.getAttribute('src')
 								});
 
 								// 设置初始倍速和音量
@@ -118,22 +142,31 @@ export const OUHNProject = Project.create({
 								video.volume = this.cfg.volume ?? 0;
 
 								// 播放视频
-								await playMedia(() => video.play());
+								await startPlayback(video);
 
 								// 监听暂停事件，自动续播
 								const autoResume = () => {
 									if (!video.ended && video.paused) {
-										video.play().catch(() => {});
+										const playBtn = document.querySelector<HTMLElement>('.mvp-toggle-play');
+										if (playBtn) {
+											playBtn.click();
+										} else {
+											video.play().catch(() => {});
+										}
 									}
 								};
 								video.addEventListener('pause', autoResume);
 
 								// 等待视频播放结束
 								await new Promise<void>((resolve) => {
-									video.addEventListener('ended', () => {
-										video.removeEventListener('pause', autoResume);
-										resolve();
-									}, { once: true });
+									video.addEventListener(
+										'ended',
+										() => {
+											video.removeEventListener('pause', autoResume);
+											resolve();
+										},
+										{ once: true }
+									);
 								});
 
 								$msg.info(`视频学习完成: ${name}`);
@@ -152,39 +185,43 @@ export const OUHNProject = Project.create({
 								return false;
 							}
 
-							// 记录当前活动元素，用于检测页面是否更新
-							const prevActiveItem = document.querySelector('.full-screen-mode-sidebar-menu-item.active');
+							if (nextBtn.disabled) {
+								$msg.success('所有任务已完成！');
+								return false;
+							}
+
+							const prevActiveItem = document.querySelector(
+								'.full-screen-mode-sidebar-menu-item.active'
+							);
 
 							nextBtn.click();
 							$msg.info('正在跳转下一个任务...');
 
-							// 等待页面内容更新（active 类切换或页面内容变化）
-							await $.sleep(3000);
-
-							// 等待新的活动加载
+							// 等待页面导航完成
 							let attempts = 0;
-							while (attempts < 15) {
-								const currentActive = document.querySelector('.full-screen-mode-sidebar-menu-item.active');
-								// 如果 active 项发生变化，说明页面已更新
+							while (attempts < 20) {
+								await $.sleep(1000);
+								// 检测侧边栏 active 是否变化
+								const currentActive = document.querySelector(
+									'.full-screen-mode-sidebar-menu-item.active'
+								);
 								if (currentActive && currentActive !== prevActiveItem) {
-									await $.sleep(1000); // 额外等待内容渲染
-									return true;
-								}
-								// 或者如果视频元素变化了
-								const video = document.querySelector<HTMLVideoElement>('video.vjs-tech');
-								if (video && video.src) {
 									await $.sleep(1000);
 									return true;
 								}
-								await $.sleep(1000);
+								// 检测页面内容是否更新（新视频或新内容加载）
+								const videoEl = document.querySelector<HTMLVideoElement>('video.vjs-tech');
+								if (videoEl && videoEl.readyState >= 2) {
+									await $.sleep(1000);
+									return true;
+								}
 								attempts++;
 							}
-							return true; // 超时也继续尝试
+							return true;
 						};
 
 						// 主循环
 						while (true) {
-							// 检查页面是否还在学习页面
 							if (!document.querySelector('.full-screen-mode-wrapper')) {
 								$msg.warn('已离开学习页面，脚本停止');
 								break;
@@ -195,18 +232,13 @@ export const OUHNProject = Project.create({
 							} else {
 								const name = getCurrentActivityName();
 								$msg.info(`非视频资源，跳过: ${name}`);
-								await $.sleep(2000);
+								await $.sleep(3000);
 							}
-
-							// 检查是否需要复习（已完成的内容）
-							const activeItem = document.querySelector('.full-screen-mode-sidebar-menu-item.active');
-							// 国开的已完成活动不会自动跳过，由 restudy 配置控制
 
 							const hasNext = await goNext();
 							if (!hasNext) break;
 
-							// 短暂等待后检查是否还在同一页面
-							await $.sleep(2000);
+							await $.sleep(1000);
 						}
 					}
 				};
