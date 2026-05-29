@@ -169,10 +169,27 @@ export const CommonProject = Project.create({
 													'大学生网课题库接口适配器: 将不同的题库整合为一个API接口。详细查看 https://github.com/DokiDoki1103/tikuAdapter'
 											},
 											'TikuAdapter'
+										),
+										h(
+											'option',
+											{
+												title: 'DeepSeek AI 智能答题：输入 DeepSeek API Key（sk-...）即可使用 AI 自动答题，可与题库同时配置。'
+											},
+											'DeepSeek AI'
 										)
 									]
 								)
 							);
+
+							select.onchange = () => {
+								if (select.value === 'DeepSeek AI') {
+									textarea.placeholder = '输入 DeepSeek API Key（格式：sk-xxxx...）';
+								} else if (select.value === 'TikuAdapter') {
+									textarea.placeholder = '输入 TikuAdapter 接口地址（格式：http://...）';
+								} else {
+									textarea.placeholder = aw.length ? '重新输入题库配置' : '输入你的题库配置...，不会请看上方填写教程';
+								}
+							};
 
 							const modal = $modal.prompt({
 								width: 600,
@@ -315,6 +332,46 @@ export const CommonProject = Project.create({
 																	}
 																},
 																handler: "return (res)=>res.answer.allAnswer.map(i=>([res.question,i.join('#')]))"
+															});
+														} else if (select.value === 'DeepSeek AI') {
+															const apiKey = value.trim();
+															if (!apiKey.startsWith('sk-')) {
+																$modal.alert({
+																	content: h('div', 'DeepSeek API Key 格式错误，应以 sk- 开头，请重新输入！')
+																});
+																return;
+															}
+															select.value = '默认';
+															awsResult.push({
+																name: 'DeepSeek AI',
+																url: 'https://api.deepseek.com/v1/chat/completions',
+																homepage: 'https://www.deepseek.com',
+																method: 'post',
+																type: 'GM_xmlhttpRequest',
+																contentType: 'json',
+																headers: {
+																	Authorization: `Bearer ${apiKey}`,
+																	'Content-Type': 'application/json'
+																},
+																data: {
+																	model: 'deepseek-chat',
+																	messages: [
+																		{
+																			role: 'system',
+																			content:
+																				'你是答题助手。只输出答案，不要解释。单选题输出对应选项字母（A/B/C/D）；多选题输出多个字母并用#分隔（如A#C）；判断题只输出“对”或“错”；填空题直接输出答案文字。'
+																		},
+																		{
+																			role: 'user',
+																			// eslint-disable-next-line no-template-curly-in-string
+																			content: '题目：${title}\n选项：\n${options}'
+																		}
+																	],
+																	temperature: 0.1,
+																	max_tokens: 500
+																},
+																handler:
+																	"return (res) => { const c = res.choices?.[0]?.message?.content?.trim(); if (!c) return undefined; return ['AI', c]; }"
 															});
 														} else {
 															const contents = value

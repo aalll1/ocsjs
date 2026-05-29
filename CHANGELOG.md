@@ -1,3 +1,10 @@
+## [4.14.2](https://github.com/aalll1/ocsjs/compare/4.14.1...4.14.2) (2026-05-29)
+
+### Features
+
+* **script:** 题库配置新增 DeepSeek AI 解析器，选择解析器后输入 API Key 即可启用 AI 自动答题，可与题库同时配置
+
+
 ## [4.14.1](https://github.com/aalll1/ocsjs/compare/4.14.0...4.14.1) (2026-05-29)
 
 ### Features

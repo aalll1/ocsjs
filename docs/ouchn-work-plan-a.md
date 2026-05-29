@@ -148,4 +148,5 @@ new OCSWorker({
 - 实现文件: `packages/scripts/src/projects/ouchn.ts`（函数 `ouchnExamWork`，第 170+ 行）
 - 参考实现: `packages/scripts/src/projects/zjy.ts:632-720`
 - 答题框架: `packages/scripts/src/utils/work.ts`（`commonWork` / `OCSWorker`）
+- AI 集成: `docs/deepseek-ai-integration.md`
 - 页面 HTML 分析源文件: 根目录 `国开答题页面*.txt`（供日后继续分析）
