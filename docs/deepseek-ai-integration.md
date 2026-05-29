@@ -92,11 +92,95 @@ System prompt 要求 AI 严格按上述格式输出，temperature 设为 0.1 降
 
 ---
 
-## 代码位置
+## 代码改动详情
+
+### `packages/scripts/src/projects/common.ts`
+
+`answererWrappersButton.onload()` 内，原有解析器选择逻辑基于 `<select>` + 分支处理，本次新增第三个分支，与 TikuAdapter 对称。
+
+**改动 1 — 解析器 `<select>` 新增选项**（`$ui.tooltip(h('select', ...))` 内）
+
+```ts
+h('option', {
+    title: 'DeepSeek AI 智能答题：输入 API Key（sk-...）即可使用 AI 自动答题...'
+}, 'DeepSeek AI')
+```
+
+位置：`TikuAdapter` 选项之后。
+
+---
+
+**改动 2 — `select.onchange` 更新 textarea 提示文字**（`$ui.tooltip(...)` 闭合之后）
+
+```ts
+select.onchange = () => {
+    if (select.value === 'DeepSeek AI') {
+        textarea.placeholder = '输入 DeepSeek API Key（格式：sk-xxxx...）';
+    } else if (select.value === 'TikuAdapter') {
+        textarea.placeholder = '输入 TikuAdapter 接口地址（格式：http://...）';
+    } else {
+        textarea.placeholder = aw.length ? '重新输入题库配置' : '输入你的题库配置...';
+    }
+};
+```
+
+`textarea` 在 `select` 之前定义，可直接引用。
+
+---
+
+**改动 3 — 保存配置按钮的 `try` 块内新增分支**
+
+原结构：
+```
+if (TikuAdapter) { ... }
+else { /* 默认 JSON 解析 */ }
+```
+
+改为：
+```
+if (TikuAdapter) { ... }
+else if (DeepSeek AI) { /* 验证 sk- 格式，生成 AnswererWrapper */ }
+else { /* 默认 JSON 解析 */ }
+```
+
+DeepSeek AI 分支的核心：验证 API Key 格式（`startsWith('sk-')`），然后 `awsResult.push({...})` 构造完整 AnswererWrapper 对象（见上方技术实现章节）。
+
+---
+
+### `scripts/make-userscript.js`
+
+```js
+// 原来
+connect: ['enncy.cn', ..., '127.0.0.1'],
+// 改为
+connect: ['enncy.cn', ..., '127.0.0.1', 'api.deepseek.com'],
+```
+
+此数组在构建时写入 userscript 的 `@connect` 头部。不加则 Tampermonkey 会弹窗拦截 `GM_xmlhttpRequest` 的跨域请求。
+
+---
+
+## 开发过程遇到的问题
+
+### 问题：Windows bash heredoc 中文字符 GBK 编码写入 UTF-8 文件
+
+**现象**：第一次构建报错 `TS1002: Unterminated string literal`（common.ts 第 367 行），检查文件发现：
+- system prompt 中的中文字符变成乱码字节（UTF-8 的汉字 bytes 被当作 GBK 解释后写入）
+- `'题目：${title}\n选项：\n${options}'` 里的 `\n` 成了真实换行符，导致单引号字符串跨行
+
+**根本原因**：修改代码使用了 `python -c "..."` + bash 双引号字符串的方式生成 Python 脚本。在 Windows Git Bash 中，bash 双引号字符串内的 `\n` 转义会被处理，导致 `\\n` → `\n`（真实换行）；同时 heredoc 传入 Python 的中文字符走了 GBK 编码的 stdin 管道，Python 写文件时字节值错误。
+
+**解决方案**：将修复逻辑写成独立的 `.py` 文件（`Write` 工具直接写 UTF-8），再用 `python _fix.py` 执行。Python 脚本文件以 UTF-8 读取，字符串字面量正确，`open(..., encoding='utf-8')` 写出的文件字节也正确。
+
+**结论 / 后续规则**：在 Windows 环境下，凡是 Python 脚本中含有中文字符串需要写入文件，**必须先把脚本写成文件再执行**，不能用 `python -c "..."` 或 bash heredoc 传递含中文的 Python 代码。
+
+---
+
+## 代码位置（汇总）
 
 | 文件 | 改动 | 说明 |
 |------|------|------|
-| `packages/scripts/src/projects/common.ts` | 新增 DeepSeek AI option、onchange、save 分支 | 题库配置 UI 逻辑 |
+| `packages/scripts/src/projects/common.ts` | 3 处：select option / onchange / save 分支 | 题库配置 UI 逻辑，约 50 行 |
 | `scripts/make-userscript.js` | `connect` 白名单加 `api.deepseek.com` | userscript 头部生成 |
 
 ---
