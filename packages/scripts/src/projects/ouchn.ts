@@ -1,9 +1,11 @@
-import { $ } from '@ocsjs/core';
-import { Project, Script, $ui } from 'easy-us';
-import { playMedia, $msg } from '../utils';
+import { $, OCSWorker, defaultAnswerWrapperHandler } from '@ocsjs/core';
+import { Project, Script, $ui, $message } from 'easy-us';
+import { playMedia, $msg, CommonWorkOptions } from '../utils';
 import { CommonProject } from './common';
+import { BackgroundProject } from './background';
 import { waitForElement, waitForMedia } from '../utils/study';
 import { playbackRate, volume, restudy } from '../utils/configs';
+import { commonWork, simplifyWorkResult } from '../utils/work';
 
 /**
  * 模块级状态，供 study 和 work 脚本共享
@@ -165,6 +167,102 @@ async function goNext() {
 	return true;
 }
 
+/**
+ * 国开考试自动答题（测试版）
+ * 支持：单选、多选、判断、填空
+ */
+function ouchnExamWork({ answererWrappers, period, thread, answerSeparators, answerMatchMode }: CommonWorkOptions) {
+	$message.info({ content: '开始国开考试自动答题...' });
+	CommonProject.scripts.workResults.methods.init();
+
+	const titleTransform = (titles: (HTMLElement | undefined)[]) => {
+		return titles
+			.filter((t) => t?.innerText)
+			.map((t) => t!.innerText.trim())
+			.join(',');
+	};
+
+	const worker = new OCSWorker({
+		root: '.subjects-jit-display > li.subject',
+		elements: {
+			title: '.subject-description',
+			options: 'ol.subject-options > li.option, ol.subject-answers > li.answer'
+		},
+		thread: thread ?? 1,
+		answerSeparators: answerSeparators.split(',').map((s) => s.trim()),
+		answerMatchMode,
+		answerer: (elements, ctx) => {
+			const title = titleTransform(elements.title);
+			if (title) {
+				return CommonProject.scripts.apps.methods.searchAnswerInCaches(title, async () => {
+					await $.sleep((period ?? 3) * 1000);
+					return defaultAnswerWrapperHandler(answererWrappers, {
+						type: ctx.type || 'unknown',
+						title,
+						options: ctx.elements.options.map((o) => o.innerText).join('\n')
+					});
+				});
+			} else {
+				throw new Error('题目为空，跳过');
+			}
+		},
+		work: {
+			type(ctx) {
+				const opts = ctx.elements.options;
+				if (!opts.length) return undefined;
+				// 填空题：有 text 输入框
+				if (opts.some((o) => o.querySelector('input[type="text"]'))) return 'completion';
+				// 多选题：有 checkbox
+				if (opts.some((o) => o.querySelector('input[type="checkbox"]'))) return 'multiple';
+				// 单选/判断：有 radio，2 个选项则判断题
+				if (opts.some((o) => o.querySelector('input[type="radio"]'))) {
+					return opts.length === 2 ? 'judgement' : 'single';
+				}
+				return undefined;
+			},
+			handler(type, answer, option) {
+				if (type === 'single' || type === 'judgement' || type === 'multiple') {
+					const input = option.querySelector<HTMLInputElement>('input');
+					if (input && !input.checked) {
+						// AngularJS 通过 label click 触发 ng-model 更新
+						const label = option.querySelector('label');
+						if (label) label.click();
+						else input.click();
+					}
+				} else if (type === 'completion' && answer.trim()) {
+					const input = option.querySelector<HTMLInputElement>('input[type="text"]');
+					if (input) {
+						input.value = answer;
+						input.dispatchEvent(new Event('input', { bubbles: true }));
+						input.dispatchEvent(new Event('change', { bubbles: true }));
+					}
+				}
+			}
+		},
+		onResultsUpdate(curr, _, res) {
+			CommonProject.scripts.workResults.methods.setResults(simplifyWorkResult(res, titleTransform));
+			if (curr.result?.finish) {
+				CommonProject.scripts.apps.methods.addQuestionCacheFromWorkResult(
+					simplifyWorkResult([curr], titleTransform)
+				);
+			}
+			CommonProject.scripts.workResults.methods.updateWorkStateByResults(res);
+		}
+	});
+
+	worker
+		.doWork({ enable_debug: BackgroundProject.scripts.dev.cfg.enable_answerer_debug })
+		.then(() => {
+			$message.info({ content: '考试题目已自动作答，请检查后手动提交。', duration: 0 });
+			worker.emit('done');
+		})
+		.catch((err) => {
+			$message.error({ content: `答题失败: ${err}`, duration: 0 });
+		});
+
+	return worker;
+}
+
 export const OUHNProject = Project.create({
 	name: '国开',
 	domains: ['lms.ouchn.cn'],
@@ -250,29 +348,36 @@ export const OUHNProject = Project.create({
 			}
 		}),
 		/**
-		 * 作业考试脚本（占位，等待国开作业页面 URL 和 DOM 确认后实现）
-		 * @see docs/ouchn-work-plan-a.md
+		 * 作业考试脚本（测试版 v4.14.1）
+		 * 仅在 ng-app="exam" 的国开答题页面运行，通过 DOM 检测区分考试活动页和学习页
 		 */
 		work: new Script({
 			name: '📝 作业考试',
 			namespace: 'ouchn.work-v1',
-			matches: [['国开作业页面', 'TODO']],
-			hideInPanel: true,
+			matches: [['国开考试页面', 'lms.ouchn.cn']],
 			configs: {
 				notes: {
 					defaultValue: $ui.notes([
-						'自动答题前请在 "通用-全局设置" 中设置题库配置。',
-						'可以搭配 "通用-在线搜题" 一起使用。',
-						'请手动进入作业考试页面才能使用自动答题。'
+						'【测试版】支持单选、多选、判断、填空自动答题。',
+						'使用前请在 "通用-全局设置" 中配置题库。',
+						'进入考试答题页面后脚本自动识别并运行，答完后请手动提交。',
+						'简答题/综合题不支持自动答题，需手动填写。'
 					]).outerHTML
 				}
 			},
 			oncomplete() {
-				// TODO: 拿到国开作业页面 DOM 后实现
-				// 参考: packages/scripts/src/projects/zjy.ts:632-720
-				// commonWork(this, {
-				//     workerProvider: (opt) => ouchnWorkOrExam(opt)
-				// });
+				// 仅在国开考试答题页面（ng-app="exam"）运行
+				const ngApp = document.documentElement.getAttribute('ng-app');
+				if (ngApp !== 'exam') return;
+
+				// 等待答题卷加载（非结果页）
+				waitForElement('.exam-paper.notranslate', { timeout_seconds: 20 }).then((el) => {
+					if (!el) return;
+					CommonProject.scripts.render.methods.pin(this);
+					commonWork(this, {
+						workerProvider: (opts) => ouchnExamWork(opts)
+					});
+				});
 			}
 		})
 	}

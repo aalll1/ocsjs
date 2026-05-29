@@ -1,3 +1,10 @@
+## [4.14.1](https://github.com/aalll1/ocsjs/compare/4.14.0...4.14.1) (2026-05-29)
+
+### Features
+
+* **script:** 新增国开考试自动答题（测试版），支持单选、多选、判断、填空题型，通过 ng-app DOM 检测区分答题页与学习页
+
+
 ## [4.14.0](https://github.com/aalll1/ocsjs/compare/4.13.9...4.14.0) (2026-05-22)
 
 ### Features
