@@ -34,6 +34,17 @@
 
 ## 更新日志
 
+### v4.14.4 (2026-05-30)
+
+- 修复 DeepSeek AI 答题完全失效：构建脚本缺少 `@connect api.deepseek.com`，Tampermonkey 拦截所有 DeepSeek 请求，导致既搜不到答案也不选选项
+- 修复全局设置连接状态误报：DeepSeek 等需要鉴权的 API，服务端返回 401/404 仍应显示"连接成功"，只有真网络故障才显示"连接失败"
+
+### v4.14.3 (2026-05-30)
+
+- 修复国开考试答题脚本无法启动的 bug：实际 HTML 为 `<body -ng-app="exam">`，属性在 `body` 上且名称带连字符，导致 `ng-app` 检测永远失败
+- 改为直接等待 `.exam-paper.notranslate` 元素，检测更可靠，非考试页面 10 秒后自动跳过
+- 答题题目选择器排除章节标题(text)、简答(short_answer)、综合(analysis)、匹配(matching)等无法自动答题的类型
+
 ### v4.14.2 (2026-05-29)
 
 - 题库配置新增 **DeepSeek AI** 解析器

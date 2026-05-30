@@ -1,3 +1,19 @@
+## [4.14.4](https://github.com/aalll1/ocsjs/compare/4.14.3...4.14.4) (2026-05-30)
+
+### Bug Fixes
+
+* **deepseek:** 修复 DeepSeek AI 答题完全失效：`build-core.js` 构建脚本缺少 `@connect api.deepseek.com` 白名单，导致 Tampermonkey 拦截所有 API 请求；同步更新 dist 脚本头
+* **deepseek:** 修复全局设置中 DeepSeek 连接状态显示错误：HTTP 4xx 响应（服务器可达但需要鉴权）不再显示"连接失败"，仅真正网络不可达时才标红
+
+
+## [4.14.3](https://github.com/aalll1/ocsjs/compare/4.14.2...4.14.3) (2026-05-30)
+
+### Bug Fixes
+
+* **ouchn:** 修复考试答题脚本无法启动的问题：`ng-app` 属性实际在 `<body>` 元素上且名称为 `-ng-app`，改为直接等待 `.exam-paper.notranslate` 元素来检测考试页面
+* **ouchn:** 答题题目选择器排除 text/short_answer/analysis/matching 等无法自动答题的题目类型，避免无效搜题
+
+
 ## [4.14.2](https://github.com/aalll1/ocsjs/compare/4.14.1...4.14.2) (2026-05-29)
 
 ### Features

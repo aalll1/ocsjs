@@ -84,7 +84,7 @@ async function createUserJs() {
 				homepage: 'https://docs.ocsjs.com',
 				source: 'https://github.com/ocsjs/ocsjs',
 				icon: 'https://cdn.ocsjs.com/logo.png',
-				connect: ['enncy.cn', 'icodef.com', 'ocsjs.com', 'zaizhexue.top', 'localhost', '127.0.0.1'],
+				connect: ['enncy.cn', 'icodef.com', 'ocsjs.com', 'zaizhexue.top', 'localhost', '127.0.0.1', 'api.deepseek.com'],
 				match: matchMetadata,
 				grant: [
 					'GM_info',

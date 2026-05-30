@@ -833,7 +833,9 @@ export const CommonProject = Project.create({
 													});
 												} catch (err) {
 													error = err;
-													return false;
+													// HTTP 错误响应（如 401/404）说明服务器可达，只是需要鉴权或路径不存在
+													// 网络错误（无响应）err 为 Error 对象而非字符串
+													return typeof err === 'string' ? err : false;
 												}
 											})(),
 											(async () => {
