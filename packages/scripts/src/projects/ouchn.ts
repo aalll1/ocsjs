@@ -116,13 +116,29 @@ async function studyVideo(playbackRate: number, vol: number) {
 }
 
 /**
+ * 发送浏览器桌面通知
+ * 若权限未授予则先请求；浏览器不支持或用户拒绝则静默忽略
+ */
+async function browserNotify(title: string, body: string) {
+	if (typeof Notification === 'undefined') return;
+	if (Notification.permission === 'default') {
+		await Notification.requestPermission();
+	}
+	if (Notification.permission === 'granted') {
+		new Notification(title, { body });
+	}
+}
+
+/**
  * 点击下一个按钮并等待页面更新
  * @returns true 跳转成功，false 所有任务已完成
  */
 async function goNext() {
 	const nextBtn = document.querySelector<HTMLButtonElement>('.next-btn');
 	if (!nextBtn) {
-		$msg.error('未找到"下一个"按钮');
+		const errMsg = '未找到"下一个"按钮，学习已停止，请检查页面';
+		$msg.error(errMsg);
+		browserNotify('国开学习中断', errMsg).catch(() => {});
 		return false;
 	}
 
@@ -174,7 +190,8 @@ function ouchnExamWork({ answererWrappers, period, thread, answerSeparators, ans
 	};
 
 	const worker = new OCSWorker({
-		root: '.subjects-jit-display > li.subject',
+		// 排除 text(章节标题)、short_answer(简答)、analysis(综合)、matching(匹配) 等无法自动答题的类型
+		root: '.subjects-jit-display > li.subject:not(.text):not(.short_answer):not(.analysis):not(.matching)',
 		elements: {
 			title: '.subject-description',
 			options: 'ol.subject-options > li.option, ol.subject-answers > li.answer'
@@ -201,11 +218,8 @@ function ouchnExamWork({ answererWrappers, period, thread, answerSeparators, ans
 			type(ctx) {
 				const opts = ctx.elements.options;
 				if (!opts.length) return undefined;
-				// 填空题：有 text 输入框
 				if (opts.some((o) => o.querySelector('input[type="text"]'))) return 'completion';
-				// 多选题：有 checkbox
 				if (opts.some((o) => o.querySelector('input[type="checkbox"]'))) return 'multiple';
-				// 单选/判断：有 radio，2 个选项则判断题
 				if (opts.some((o) => o.querySelector('input[type="radio"]'))) {
 					return opts.length === 2 ? 'judgement' : 'single';
 				}
@@ -215,7 +229,6 @@ function ouchnExamWork({ answererWrappers, period, thread, answerSeparators, ans
 				if (type === 'single' || type === 'judgement' || type === 'multiple') {
 					const input = option.querySelector<HTMLInputElement>('input');
 					if (input && !input.checked) {
-						// AngularJS 通过 label click 触发 ng-model 更新
 						const label = option.querySelector('label');
 						if (label) label.click();
 						else input.click();
@@ -244,11 +257,15 @@ function ouchnExamWork({ answererWrappers, period, thread, answerSeparators, ans
 	worker
 		.doWork({ enable_debug: BackgroundProject.scripts.dev.cfg.enable_answerer_debug })
 		.then(() => {
-			$message.info({ content: '考试题目已自动作答，请检查后手动提交。', duration: 0 });
+			const doneMsg = '考试题目已自动作答，请检查后手动提交。';
+			$message.info({ content: doneMsg, duration: 0 });
+			browserNotify('国开考试：需要手动交卷', doneMsg).catch(() => {});
 			worker.emit('done');
 		})
 		.catch((err) => {
-			$message.error({ content: `答题失败: ${err}`, duration: 0 });
+			const errMsg = `答题失败: ${err}`;
+			$message.error({ content: errMsg, duration: 0 });
+			browserNotify('国开考试：答题出错', errMsg).catch(() => {});
 		});
 
 	return worker;
@@ -313,36 +330,153 @@ export const OUHNProject = Project.create({
 
 						$msg.info('国开学习脚本已启动');
 
-						while (true) {
-							if (!document.querySelector('.full-screen-mode-wrapper')) {
-								$msg.warn('已离开学习页面，脚本停止');
-								break;
+						try {
+							while (true) {
+								if (!document.querySelector('.full-screen-mode-wrapper')) {
+									$msg.warn('已离开学习页面，脚本停止');
+									break;
+								}
+
+								// 直接等视频元素出现（最多10秒），不依赖侧栏图标
+								const videoEl = await waitForElement('video.vjs-tech', { timeout_seconds: 10 });
+								if (videoEl) {
+									const rate = parseFloat(this.cfg.playbackRate?.toString() || '1');
+									const vol = this.cfg.volume ?? 0;
+									await studyVideo(rate, vol);
+								} else {
+									const name = getCurrentActivityName();
+									$msg.info(`非视频资源，跳过: ${name}`);
+									await $.sleep(3000);
+								}
+
+								const hasNext = await goNext();
+								if (!hasNext) break;
+
+								await $.sleep(1000);
 							}
-
-							// 直接等视频元素出现（最多10秒），不依赖侧栏图标
-							const videoEl = await waitForElement('video.vjs-tech', { timeout_seconds: 10 });
-							if (videoEl) {
-								const rate = parseFloat(this.cfg.playbackRate?.toString() || '1');
-								const vol = this.cfg.volume ?? 0;
-								await studyVideo(rate, vol);
-							} else {
-								const name = getCurrentActivityName();
-								$msg.info(`非视频资源，跳过: ${name}`);
-								await $.sleep(3000);
-							}
-
-							const hasNext = await goNext();
-							if (!hasNext) break;
-
-							await $.sleep(1000);
+						} catch (err) {
+							const errMsg = `学习脚本发生异常：${err instanceof Error ? err.message : String(err)}`;
+							$msg.error(errMsg);
+							browserNotify('国开学习中断', errMsg).catch(() => {});
 						}
 					}
 				};
 			}
 		}),
 		/**
-		 * 作业考试脚本（测试版 v4.14.1）
-		 * 仅在 ng-app="exam" 的国开答题页面运行，通过 DOM 检测区分考试活动页和学习页
+		 * 课程章节页导航脚本
+		 * 在课程章节列表页（/course/{id}/ng）检测并跳转到第一个未完成的视频任务
+		 */
+		courseNav: new Script({
+			name: '📋 课程导航',
+			namespace: 'ouchn.course-nav-v1',
+			matches: [['国开所有页面', 'lms.ouchn.cn']],
+			configs: {
+				notes: {
+					defaultValue: $ui.notes([
+						'在课程章节列表页自动检测未完成的视频任务。',
+						'开启"自动跳转"后，3 秒内自动进入第一个未完成视频。',
+						'关闭时仅显示按钮，需手动点击跳转。'
+					]).outerHTML
+				},
+				autoJump: {
+					label: '自动跳转未完成视频',
+					defaultValue: true,
+					type: 'boolean' as const
+				}
+			},
+			oncomplete() {
+				if (!/^\/course\/\d+\/ng/.test(location.pathname)) return;
+				CommonProject.scripts.render.methods.pin(this);
+				this.methods.init();
+			},
+			methods() {
+				const findFirstIncompleteVideo = (): { activityId: string; activityType: string } | null => {
+					const activities = document.querySelectorAll<HTMLElement>('.learning-activity');
+					for (const activity of Array.from(activities)) {
+						if (activity.classList.contains('ng-hide') || activity.style.display === 'none') continue;
+						if (!activity.querySelector('.completeness.none, .completeness.part')) continue;
+						if (activity.querySelector('.title.locked')) continue;
+						const idMatch = activity.id.match(/learning-activity-(\d+)/);
+						if (!idMatch) continue;
+						const summaryEl = activity.querySelector<HTMLElement>('[ng-switch-when].activity-summary');
+						if (!summaryEl) continue;
+						const activityType = summaryEl.getAttribute('ng-switch-when');
+						// 只跳转视频任务
+						if (activityType !== 'online_video') continue;
+						return { activityId: idMatch[1], activityType };
+					}
+					return null;
+				};
+
+				const getCourseId = () => {
+					const el = document.getElementById('courseId') as HTMLInputElement | null;
+					return el?.value || location.pathname.match(/\/course\/(\d+)/)?.[1] || '';
+				};
+
+				return {
+					findFirstIncompleteVideo,
+					getCourseId,
+					init: async () => {
+						await waitForElement('.learning-activity', { timeout_seconds: 20 });
+						await $.sleep(1500);
+
+						const result = findFirstIncompleteVideo();
+						if (!result) {
+							$msg.success('没有未完成的视频任务！');
+							return;
+						}
+
+						const { activityId, activityType } = result;
+						const courseId = getCourseId();
+						const url = `/course/${courseId}/learning-activity#/${activityType}/${activityId}`;
+
+						// 统计未完成视频总数
+						const allActivities = Array.from(document.querySelectorAll<HTMLElement>('.learning-activity'));
+						const totalVideos = allActivities.filter((a) => {
+							if (a.classList.contains('ng-hide') || a.style.display === 'none') return false;
+							if (!a.querySelector('.completeness.none, .completeness.part')) return false;
+							if (a.querySelector('.title.locked')) return false;
+							const summary = a.querySelector('[ng-switch-when].activity-summary');
+							return summary?.getAttribute('ng-switch-when') === 'online_video';
+						}).length;
+
+						$msg.info(`检测到 ${totalVideos} 个未完成视频任务`);
+
+						if (courseId) {
+							const old = document.getElementById('ocs-course-nav-btn');
+							if (old) old.remove();
+							const btn = document.createElement('button');
+							btn.id = 'ocs-course-nav-btn';
+							btn.textContent = `▶ 前往第一个未完成视频（共 ${totalVideos} 个）`;
+							btn.style.cssText = [
+								'position:fixed', 'bottom:20px', 'left:50%',
+								'transform:translateX(-50%)', 'z-index:9998',
+								'padding:10px 24px', 'background:#19be6b', 'color:#fff',
+								'border:none', 'border-radius:6px', 'cursor:pointer',
+								'font-size:14px', 'box-shadow:0 2px 12px rgba(0,0,0,.25)',
+								'white-space:nowrap', 'line-height:1.5'
+							].join(';');
+							btn.onclick = () => {
+								btn.remove();
+								location.href = url;
+							};
+							document.body.appendChild(btn);
+						}
+
+						if (this.cfg.autoJump && courseId) {
+							$msg.info('3 秒后自动跳转...');
+							await $.sleep(3000);
+							document.getElementById('ocs-course-nav-btn')?.remove();
+							location.href = url;
+						}
+					}
+				};
+			}
+		}),
+		/**
+		 * 作业考试脚本（测试版）
+		 * 通过等待 .exam-paper.notranslate 来检测考试页面，非考试页面 10 秒后自动退出
 		 */
 		work: new Script({
 			name: '📝 作业考试',
@@ -359,7 +493,6 @@ export const OUHNProject = Project.create({
 				}
 			},
 			oncomplete() {
-				// 等待答题卷加载（非结果页），通过 DOM 元素区分考试页和学习页
 				waitForElement('.exam-paper.notranslate', { timeout_seconds: 10 }).then((el) => {
 					if (!el) return;
 					CommonProject.scripts.render.methods.pin(this);

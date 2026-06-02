@@ -1,3 +1,17 @@
+## [4.14.7](https://github.com/aalll1/ocsjs/compare/4.14.4...4.14.7) (2026-06-02)
+
+### Bug Fixes
+
+* **study:** 修复学习脚本误判"非视频资源"问题：改用直接检测 `video.vjs-tech` 元素（等待最多10秒），彻底消除对侧栏图标渲染时机的依赖
+* **work:** 修复考试答题脚本永远无法启动：`ng-app` 属性实为 `-ng-app`（带连字符前缀），`getAttribute('ng-app')` 永远返回 null，改为等待 `.exam-paper.notranslate` 元素检测
+* **work:** 答题题目选择器排除 `text`/`short_answer`/`analysis`/`matching` 等无法自动答题的题型
+
+### Features
+
+* **courseNav:** 新增课程导航脚本：在章节列表页（`/course/{id}/ng`）检测并跳转到第一个未完成的**视频任务**，支持3秒自动跳转（可关闭）
+* **browserNotify:** 新增桌面通知：学习中断（找不到下一个按钮、脚本异常）及考试完成/出错时弹出系统通知
+
+
 ## [4.14.4](https://github.com/aalll1/ocsjs/compare/4.14.3...4.14.4) (2026-05-30)
 
 ### Bug Fixes
