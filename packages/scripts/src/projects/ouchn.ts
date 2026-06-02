@@ -40,15 +40,6 @@ function setPlaybackRate(rate: number) {
 }
 
 /**
- * 检查当前活动是否为视频类型
- */
-function isVideoActivity() {
-	const activeItem = document.querySelector('.full-screen-mode-sidebar-menu-item.active');
-	if (!activeItem) return false;
-	return !!activeItem.querySelector('.font-syllabus-online-video');
-}
-
-/**
  * 获取当前活动名称
  */
 function getCurrentActivityName() {
@@ -328,7 +319,12 @@ export const OUHNProject = Project.create({
 								break;
 							}
 
-							if (isVideoActivity()) {
+							// 等待活动类型图标渲染（SPA 页面跳转/刷新后需要几秒）
+							const videoIcon = await waitForElement(
+								'.full-screen-mode-sidebar-menu-item.active .font-syllabus-online-video',
+								{ timeout_seconds: 5 }
+							);
+							if (videoIcon) {
 								const rate = parseFloat(this.cfg.playbackRate?.toString() || '1');
 								const vol = this.cfg.volume ?? 0;
 								await studyVideo(rate, vol);
