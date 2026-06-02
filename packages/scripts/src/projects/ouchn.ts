@@ -319,12 +319,9 @@ export const OUHNProject = Project.create({
 								break;
 							}
 
-							// 等待活动类型图标渲染（SPA 页面跳转/刷新后需要几秒）
-							const videoIcon = await waitForElement(
-								'.full-screen-mode-sidebar-menu-item.active .font-syllabus-online-video',
-								{ timeout_seconds: 5 }
-							);
-							if (videoIcon) {
+							// 直接等视频元素出现（最多10秒），不依赖侧栏图标
+							const videoEl = await waitForElement('video.vjs-tech', { timeout_seconds: 10 });
+							if (videoEl) {
 								const rate = parseFloat(this.cfg.playbackRate?.toString() || '1');
 								const vol = this.cfg.volume ?? 0;
 								await studyVideo(rate, vol);
