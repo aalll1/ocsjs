@@ -366,12 +366,8 @@ export const OUHNProject = Project.create({
 				}
 			},
 			oncomplete() {
-				// 仅在国开考试答题页面（ng-app="exam"）运行
-				const ngApp = document.documentElement.getAttribute('ng-app');
-				if (ngApp !== 'exam') return;
-
-				// 等待答题卷加载（非结果页）
-				waitForElement('.exam-paper.notranslate', { timeout_seconds: 20 }).then((el) => {
+				// 等待答题卷加载（非结果页），通过 DOM 元素区分考试页和学习页
+				waitForElement('.exam-paper.notranslate', { timeout_seconds: 10 }).then((el) => {
 					if (!el) return;
 					CommonProject.scripts.render.methods.pin(this);
 					commonWork(this, {
