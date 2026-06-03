@@ -171,7 +171,12 @@ async function goNext() {
 		}
 		attempts++;
 	}
-	return true;
+
+	// 点击下一个按钮后 20 秒内页面未发生任何变化，视为跳转失败
+	const errMsg = '点击"下一个"后页面未响应，学习已停止，请检查页面';
+	$msg.error(errMsg);
+	browserNotify('国开学习中断', errMsg).catch(() => {});
+	return false;
 }
 
 /**
@@ -202,10 +207,13 @@ function ouchnExamWork({ answererWrappers, period, thread, answerSeparators, ans
 		answerer: (elements, ctx) => {
 			const title = titleTransform(elements.title);
 			if (title) {
+				const typeNames: Record<string, string> = {
+					single: '单选题', multiple: '多选题', judgement: '判断题', completion: '填空题'
+				};
 				return CommonProject.scripts.apps.methods.searchAnswerInCaches(title, async () => {
 					await $.sleep((period ?? 3) * 1000);
 					return defaultAnswerWrapperHandler(answererWrappers, {
-						type: ctx.type || 'unknown',
+						type: typeNames[ctx.type || ''] || ctx.type || '未知题型',
 						title,
 						options: ctx.elements.options.map((o) => o.innerText).join('\n')
 					});

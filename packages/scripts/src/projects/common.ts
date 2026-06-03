@@ -173,9 +173,16 @@ export const CommonProject = Project.create({
 										h(
 											'option',
 											{
-												title: 'DeepSeek AI 智能答题：输入 DeepSeek API Key（sk-...）即可使用 AI 自动答题，可与题库同时配置。'
+												title: 'DeepSeek AI 智能答题：输入 API Key（sk-...），可加 |模型名 切换模型，如 sk-xxx|deepseek-reasoner'
 											},
 											'DeepSeek AI'
+										),
+										h(
+											'option',
+											{
+												title: 'Perplexity AI 联网搜索答题：输入 API Key（pplx-...），自动联网搜索后作答，可加 |模型名 切换模型'
+											},
+											'Perplexity AI（联网）'
 										)
 									]
 								)
@@ -183,7 +190,9 @@ export const CommonProject = Project.create({
 
 							select.onchange = () => {
 								if (select.value === 'DeepSeek AI') {
-									textarea.placeholder = '输入 DeepSeek API Key（格式：sk-xxxx...）';
+									textarea.placeholder = '输入 DeepSeek API Key（格式：sk-xxxx，可加 |模型名，如 sk-xxx|deepseek-reasoner）';
+								} else if (select.value === 'Perplexity AI（联网）') {
+									textarea.placeholder = '输入 Perplexity API Key（格式：pplx-xxxx，可加 |模型名，如 pplx-xxx|sonar-pro）';
 								} else if (select.value === 'TikuAdapter') {
 									textarea.placeholder = '输入 TikuAdapter 接口地址（格式：http://...）';
 								} else {
@@ -333,19 +342,25 @@ export const CommonProject = Project.create({
 																},
 																handler: "return (res)=>res.answer.allAnswer.map(i=>([res.question,i.join('#')]))"
 															});
-														} else if (select.value === 'DeepSeek AI') {
-															const apiKey = value.trim();
-															if (!apiKey.startsWith('sk-')) {
-																$modal.alert({
-																	content: h('div', 'DeepSeek API Key 格式错误，应以 sk- 开头，请重新输入！')
-																});
+														} else if (select.value === 'DeepSeek AI' || select.value === 'Perplexity AI（联网）') {
+															const parserName = select.value;
+															const isPerplexity = parserName === 'Perplexity AI（联网）';
+															const [apiKey, model = isPerplexity ? 'sonar-pro' : 'deepseek-chat'] = value
+																.trim()
+																.split('|')
+																.map((s) => s.trim());
+															const keyPrefix = isPerplexity ? 'pplx-' : 'sk-';
+															if (!apiKey.startsWith(keyPrefix)) {
+																$modal.alert({ content: h('div', `${parserName} Key 格式错误，应以 ${keyPrefix} 开头！`) });
 																return;
 															}
 															select.value = '默认';
 															awsResult.push({
-																name: 'DeepSeek AI',
-																url: 'https://api.deepseek.com/v1/chat/completions',
-																homepage: 'https://www.deepseek.com',
+																name: parserName,
+																url: isPerplexity
+																	? 'https://api.perplexity.ai/chat/completions'
+																	: 'https://api.deepseek.com/v1/chat/completions',
+																homepage: isPerplexity ? 'https://www.perplexity.ai' : 'https://www.deepseek.com',
 																method: 'post',
 																type: 'GM_xmlhttpRequest',
 																contentType: 'json',
@@ -354,24 +369,24 @@ export const CommonProject = Project.create({
 																	'Content-Type': 'application/json'
 																},
 																data: {
-																	model: 'deepseek-chat',
+																	model,
 																	messages: [
 																		{
 																			role: 'system',
 																			content:
-																				'你是答题助手。只输出答案，不要解释。单选题输出对应选项字母（A/B/C/D）；多选题输出多个字母并用#分隔（如A#C）；判断题只输出“对”或“错”；填空题直接输出答案文字。'
+																				'你是答题助手。严格只输出最终答案，禁止解释或多余文字。格式：单选题→仅一个大写字母(A/B/C/D)；多选题→多字母用#分隔(如A#C)；判断题→仅输出“对”或“错”；填空题→直接输出答案文字。'
 																		},
 																		{
 																			role: 'user',
 																			// eslint-disable-next-line no-template-curly-in-string
-																			content: '题目：${title}\n选项：\n${options}'
+																			content: '[${type}]\n${title}\n${options}'
 																		}
 																	],
 																	temperature: 0.1,
-																	max_tokens: 500
+																	max_tokens: 256
 																},
 																handler:
-																	"return (res) => { const c = res.choices?.[0]?.message?.content?.trim(); if (!c) return undefined; return ['AI', c]; }"
+																	"return (res) => { const c = res.choices?.[0]?.message?.content?.trim(); if (!c) return undefined; let a = c.split(/\\n/)[0].trim(); a = a.replace(/^(答案[::：]?|答案是|正确答案[::：]?|选择?|选项\\s*[::：]?)\\s*/i, '').trim(); a = a.replace(/[.。,，！!？?～~]$/, '').trim(); return ['AI', a || c]; }"
 															});
 														} else {
 															const contents = value

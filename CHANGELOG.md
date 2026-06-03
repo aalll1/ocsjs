@@ -1,3 +1,23 @@
+## [4.14.9](https://github.com/aalll1/ocsjs/compare/4.14.8...4.14.9) (2026-06-03)
+
+### Bug Fixes
+
+* **work:** 修复答题 handler 未清洗 AI 输出，导致 "A." / "答案是A" 等格式无法匹配选项（ABCD 映射要求长度恰好为 1）；现在取第一行、去"答案："前缀、去末尾标点后再返回
+
+### Features
+
+* **work:** DeepSeek AI 支持 `sk-xxx|模型名` 格式选择模型（默认 `deepseek-chat`，可改为 `deepseek-reasoner`）
+* **work:** 新增 Perplexity AI（联网）解析器：`pplx-xxx` API Key，默认模型 `sonar-pro`，自动联网搜索后作答，支持 `|模型名` 切换
+* **work:** AI 用户消息增加 `[题型]` 前缀（单选题/多选题/判断题/填空题），system prompt 更严格禁止解释性输出
+
+
+## [4.14.8](https://github.com/aalll1/ocsjs/compare/4.14.7...4.14.8) (2026-06-02)
+
+### Bug Fixes
+
+* **study:** 修复 `goNext()` 点击下一个按钮后 20 秒内页面无响应时错误返回 `true`，导致主循环误判跳转成功并可能无限重学同一任务；现在超时后发送桌面通知并返回 `false` 终止循环
+
+
 ## [4.14.7](https://github.com/aalll1/ocsjs/compare/4.14.4...4.14.7) (2026-06-02)
 
 ### Bug Fixes
