@@ -11,7 +11,8 @@ globalThis.unsafeWindow = {};
 globalThis.GM_info = { script: { version: 'dev' } };
 
 const ocs = require(path.join(distDir, 'index.js'));
-const { version } = require(path.join(rootDir, 'package.json'));
+const { version, homepage, repository } = require(path.join(rootDir, 'package.json'));
+const repositoryUrl = repository.url.replace(/^git\+/, '').replace(/\.git$/, '');
 
 // 收集匹配域名
 const matchMetadata = Array.from(
@@ -56,10 +57,10 @@ const metadata = {
 	author: 'enncy',
 	license: 'MIT',
 	namespace: 'https://enncy.cn',
-	homepage: 'https://docs.ocsjs.com',
-	source: 'https://github.com/ocsjs/ocsjs',
+	homepage: homepage,
+	source: repositoryUrl,
 	icon: 'https://cdn.ocsjs.com/logo.png',
-	connect: ['enncy.cn', 'icodef.com', 'ocsjs.com', 'zaizhexue.top', 'localhost', '127.0.0.1', 'api.deepseek.com'],
+	connect: ['enncy.cn', 'icodef.com', 'ocsjs.com', 'zaizhexue.top', 'localhost', '127.0.0.1', 'api.deepseek.com', 'api.perplexity.ai'],
 	match: matchMetadata,
 	grant: [
 		'GM_info',

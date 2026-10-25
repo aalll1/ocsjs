@@ -3,7 +3,8 @@
 const { series } = require('gulp');
 const del = require('del');
 const util = require('util');
-const { version } = require('../package.json');
+const { version, homepage, repository } = require('../package.json');
+const repositoryUrl = repository.url.replace(/^git\+/, '').replace(/\.git$/, '');
 const execOut = util.promisify(require('./utils').execOut);
 const { createUserScript } = require('../packages/utils');
 const path = require('path');
@@ -81,8 +82,8 @@ async function createUserJs() {
 				author: 'enncy',
 				license: 'MIT',
 				namespace: 'https://enncy.cn',
-				homepage: 'https://docs.ocsjs.com',
-				source: 'https://github.com/ocsjs/ocsjs',
+				homepage: homepage,
+				source: repositoryUrl,
 				icon: 'https://cdn.ocsjs.com/logo.png',
 				connect: ['enncy.cn', 'icodef.com', 'ocsjs.com', 'zaizhexue.top', 'localhost', '127.0.0.1', 'api.deepseek.com', 'api.perplexity.ai'],
 				match: matchMetadata,

@@ -1,9 +1,9 @@
-## [4.13.7](https://github.com/ocsjs/ocsjs/compare/4.13.6...4.13.7) (2026-05-14)
+## 4.14.10 (2026-10-25)
 
+### Bug Fixes
 
-### Features
-
-* **script:** 新增雨课堂V2学习内容自动看视频、和讨论功能 ([d8095b6](https://github.com/ocsjs/ocsjs/commit/d8095b63104706cb2ac46d899e573da6c778eafa))
-
-
-
+* **ouchn:** 课程导航使用当前网站的 `/learning-activity/full-screen#/{activityId}` 入口。
+* **study:** 跳转判断比较任务标识，或地址变化与新媒体同时出现；避免旧视频已加载、同一任务 DOM 重建时误报成功。20 秒超时仍通知并停止。
+* **build:** 重新构建同步 4.14.9 的既有源码改动至成品脚本；同步维护分支的项目链接和请求域名。
+* **release:** 同步 README、当前/简版更新日志，固定构建工具版本并更新 GitHub Release 工作流。
+* **test:** 添加 goNext 回归测试，覆盖旧视频滞留、同任务节点重建、节点复用、新路由新媒体和末尾任务。

@@ -1,6 +1,8 @@
 {
 	"name": "ocsjs",
 	"version": "4.14.10",
+	"private": true,
+	"packageManager": "pnpm@11.2.2",
 	"description": "ocs - online course script 在线网络课程辅助工具",
 	"types": "./lib/src/core/index.d.ts",
 	"main": "./lib/src/core/index.js",
@@ -9,6 +11,7 @@
 		"dist"
 	],
 	"scripts": {
+		"test": "node --test scripts/tests/*.test.cjs",
 		"dev": "gulp -f ./scripts/dev-core.js & npm run changelog:simplify",
 		"build": "gulp -f ./scripts/build-core.js",
 		"tsc": "pnpm lint && gulp -f ./scripts/tsc.js",
@@ -49,7 +52,7 @@
 	},
 	"repository": {
 		"type": "git",
-		"url": "git+https://github.com/ocsjs/ocsjs.git"
+		"url": "git+https://github.com/aalll1/ocsjs.git"
 	},
 	"keywords": [
 		"ocs",
@@ -64,9 +67,9 @@
 	"author": "enncy",
 	"license": "MIT",
 	"bugs": {
-		"url": "https://github.com/ocsjs/ocsjs/issues"
+		"url": "https://github.com/aalll1/ocsjs/issues"
 	},
-	"homepage": "https://github.com/ocsjs/ocsjs#readme",
+	"homepage": "https://github.com/aalll1/ocsjs#readme",
 	"config": {
 		"commitizen": {
 			"path": "./node_modules/cz-conventional-changelog"

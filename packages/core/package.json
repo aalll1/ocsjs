@@ -10,7 +10,7 @@
 	],
 	"repository": {
 		"type": "git",
-		"url": "git+https://github.com/ocsjs/ocsjs.git"
+		"url": "git+https://github.com/aalll1/ocsjs.git"
 	},
 	"keywords": [
 		"ocs",
@@ -25,9 +25,9 @@
 	"author": "enncy",
 	"license": "MIT",
 	"bugs": {
-		"url": "https://github.com/ocsjs/ocsjs/issues"
+		"url": "https://github.com/aalll1/ocsjs/issues"
 	},
-	"homepage": "https://github.com/ocsjs/ocsjs#readme",
+	"homepage": "https://github.com/aalll1/ocsjs#readme",
 	"devDependencies": {
 		"@types/event-emitter": "^0.3.3",
 		"@types/lodash": "^4.14.194",

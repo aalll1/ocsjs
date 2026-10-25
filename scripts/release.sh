@@ -1,48 +1,23 @@
 #!/usr/bin/env bash
+set -euo pipefail
 
-# 自动发布npm包
+cd "$(dirname "$0")/.."
+version="$(node -p 'require("./package.json").version')"
 
-# 从控制台获取需要发布的版本
-read -p "请输入需要发布的版本(例如: 0.0.1): " version
-# 判断是否为空
-if [ -z "$version" ]; then
-    echo "版本号不能为空!"
-    exit 1
+if [ -n "$(git status --porcelain)" ]; then
+  echo "Commit local changes before publishing a release."
+  exit 1
 fi
-# 确认是否发布版本
-read -p "确认发布版本 $version ? [y/n]: " isRelease
-# 判断是发布，还是取消发布
-if [ "$isRelease" = "y" ]; then
-    # 发布
-    echo "版本发布 $version"
-    
-    # 代码检查
-    npm run lint &&
-    # 更新版本
-    npm version "$version" --no-git-tag-version &&
-    # 本地构建
-    echo "本地构建" && 
-    npm run build &&
-    # 更新日志
-    npm run changelog &&
-    # 更新日志
-    npm run changelog:simplify &&
-        # 更新日志
-    npm run changelog:current &&
-    # 保存
-    git add package.json CHANGELOG.md CHANGELOG_SIMPLIFIED.md CHANGELOG_CURRENT.md &&
-    git commit -m "version release $version" &&
-    git tag "$version" &&
-    echo "开始发布" &&
-    # 发布到Github
-    git push origin 4.0 --tags &&
-    # 发布到npm
-    npm publish &&
-    echo "$version 发布成功"
-    elif [ "$isRelease" = "n" ]; then
-    echo "取消发布"
-else
-    echo "输入有误"
+if git rev-parse --verify "refs/tags/$version" >/dev/null 2>&1; then
+  echo "Tag $version already exists."
+  exit 1
 fi
-
-
+read -r -p "Publish GitHub Release $version? [y/N]: " answer
+if [ "$answer" != "y" ]; then
+  exit 0
+fi
+pnpm test
+git push origin HEAD:refs/heads/4.0
+git tag "$version"
+git push origin "refs/tags/$version"
+echo "Tag pushed. GitHub Actions will build and publish the release."

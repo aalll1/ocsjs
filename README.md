@@ -8,15 +8,20 @@
 
 > OCS (Online Course Script) 网课刷课脚本，帮助大学生解决网课难题
 
-![GitHub Repo stars](https://img.shields.io/github/stars/ocsjs/ocsjs)
-![npm](https://img.shields.io/npm/v/ocsjs?color=red)
-![NPM](https://img.shields.io/npm/l/ocsjs)
-![今日安装](https://img.shields.io/badge/dynamic/json?color=orange&label=今日安装&query=$.data.today_install&url=https://scriptcat.org/api/v2/scripts/367)
-![总共安装](https://img.shields.io/badge/dynamic/json?color=red&label=总共安装&query=$.data.total_install&url=https://scriptcat.org/api/v2/scripts/367)
+[![Release](https://img.shields.io/github/v/release/aalll1/ocsjs)](https://github.com/aalll1/ocsjs/releases/latest)
+[![License](https://img.shields.io/github/license/aalll1/ocsjs)](LICENSE)
 
 </div>
  
 <div align="center">
+
+## 当前版本：4.14.10
+
+本仓库是 [ocsjs/ocsjs](https://github.com/ocsjs/ocsjs) 的维护分支，保留上游 MIT 许可及作者信息，主要维护国开平台适配。
+
+[下载正式脚本](https://github.com/aalll1/ocsjs/releases/latest/download/ocs.user.js) · [全部发布文件](https://github.com/aalll1/ocsjs/releases/latest) · [问题反馈](https://github.com/aalll1/ocsjs/issues)
+
+下载后通过 Tampermonkey 或脚本猫安装。题库与 AI 服务需要自行配置；国开答题模块仍为测试版，当前版本尚未完成实际答题流程验证。
 
 ## 官网及教程 [https://docs.ocsjs.com](https://docs.ocsjs.com)
 
@@ -33,6 +38,19 @@
 | **国开** | **lms.ouchn.cn** |
 
 ## 更新日志
+
+### v4.14.10 (2026-10-25)
+
+- 课程导航适配当前 `/learning-activity/full-screen#/{activityId}` 入口。
+- 修复旧视频残留或同一任务节点重新渲染时误报跳转成功的问题；跳转超时仍会通知并停止。
+- 新增 8 项跳转回归测试，重新构建并同步之前未发布的源码改动。
+- 同步本分支的版本日志、下载链接与发布流程。
+
+### v4.14.9 (2026-06-03)
+
+- 清洗 AI 返回的答案格式，DeepSeek 支持使用 `|模型名` 指定模型。
+- 新增 Perplexity 解析器及题型提示，补齐对应请求域名。
+
 
 ### v4.14.8 (2026-06-02)
 
@@ -88,3 +106,19 @@
 - 视频结束后自动跳转下一个任务，非视频资源自动跳过
 
 </div>
+
+## 本地开发与发布
+
+使用 Node.js 24 和 pnpm 11.2.2。先运行 `pnpm install --frozen-lockfile --ignore-scripts`，再运行 `pnpm test`。
+
+Windows PowerShell 构建：
+
+```powershell
+$env:PATH = "$PWD/node_modules/.bin;$PWD/packages/core/node_modules/.bin;$PWD/packages/scripts/node_modules/.bin;" + $env:PATH
+$env:VITE_BUILD_PATH = '../../dist'
+pnpm build
+```
+
+构建产物位于 `dist/`。版本标签必须与 `package.json` 的版本一致；推送版本标签后，GitHub Actions 会执行测试、构建并发布 GitHub Release。发布说明来自 `CHANGELOG_CURRENT.md`。本仓库通过 GitHub 发布用户脚本。
+
+本地账号资料放在已忽略的 `.env.local` 中。提交前检查暂存文件及敏感信息；账号、Cookie、API Key 和浏览器导出内容应仅保存在本地。
