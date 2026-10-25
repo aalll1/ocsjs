@@ -147,9 +147,22 @@ async function goNext() {
 		return false;
 	}
 
-	const prevActiveItem = document.querySelector(
-		'.full-screen-mode-sidebar-menu-item.active'
+	// Compare activity identity, not DOM node identity: Vue may reuse or recreate nodes.
+	const activityKey = (item: Element | null) =>
+		item
+			? [
+					item.id,
+					item.getAttribute('data-id'),
+					item.getAttribute('data-activity-id'),
+					item.textContent?.trim()
+				].join('|')
+			: '';
+	const prevActiveKey = activityKey(
+		document.querySelector('.full-screen-mode-sidebar-menu-item.active')
 	);
+	const prevHash = location.hash;
+	const prevVideo = document.querySelector<HTMLVideoElement>('video.vjs-tech');
+	const prevVideoSrc = prevVideo?.currentSrc || prevVideo?.getAttribute('src') || '';
 
 	nextBtn.click();
 	$msg.info('正在跳转下一个任务...');
@@ -160,12 +173,19 @@ async function goNext() {
 		const currentActive = document.querySelector(
 			'.full-screen-mode-sidebar-menu-item.active'
 		);
-		if (currentActive && currentActive !== prevActiveItem) {
+		if (currentActive && activityKey(currentActive) !== prevActiveKey) {
 			await $.sleep(1000);
 			return true;
 		}
 		const videoEl = document.querySelector<HTMLVideoElement>('video.vjs-tech');
-		if (videoEl && videoEl.readyState >= 2) {
+		const videoSrc = videoEl?.currentSrc || videoEl?.getAttribute('src') || '';
+		// A loaded video alone may still be the previous task's player.
+		if (
+			location.hash !== prevHash &&
+			videoEl &&
+			videoEl.readyState >= 2 &&
+			(videoEl !== prevVideo || (videoSrc !== '' && videoSrc !== prevVideoSrc))
+		) {
 			await $.sleep(1000);
 			return true;
 		}
@@ -435,9 +455,9 @@ export const OUHNProject = Project.create({
 							return;
 						}
 
-						const { activityId, activityType } = result;
+						const { activityId } = result;
 						const courseId = getCourseId();
-						const url = `/course/${courseId}/learning-activity#/${activityType}/${activityId}`;
+						const url = `/course/${courseId}/learning-activity/full-screen#/${activityId}`;
 
 						// 统计未完成视频总数
 						const allActivities = Array.from(document.querySelectorAll<HTMLElement>('.learning-activity'));
