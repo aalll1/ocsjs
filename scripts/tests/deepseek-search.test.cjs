@@ -154,7 +154,7 @@ test('web mode bypasses old cache and does not cache an ungraded AI answer',asyn
   let cacheReads=0,cacheWrites=0,received;
   class Worker{constructor(opts){this.opts=opts;}doWork(){return new Promise(()=>{});}emit(){}}
   const make=extractFunction('packages/scripts/src/projects/ouchn.ts','ouchnExamWork',{
-   automation:{isPaused:()=>false,waitUntilRunning:async()=>{},delay:async()=>{}},state:{},OCSWorker:Worker,
+   automation:{isPaused:()=>false,waitUntilRunning:async()=>{},delay:async()=>{}},state:{},OCSWorker:Worker,examSession:()=>undefined,
    getChoiceQuestionType:f.getChoiceQuestionType,readChoiceQuestion:f.readChoiceQuestion,
    $message:{info(){},error(){}},BackgroundProject:{scripts:{dev:{cfg:{}}}},
    CommonProject:{scripts:{

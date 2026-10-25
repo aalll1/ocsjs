@@ -9,6 +9,8 @@ import { waitForElement } from '../utils/study';
 import { playbackRate, volume, restudy } from '../utils/configs';
 import { commonWork, simplifyWorkResult } from '../utils/work';
 import { getChoiceQuestionType, readChoiceQuestion } from '../utils/choice-question';
+import { readLearningResource, isVisible } from '../utils/resource-reader';
+import { ExamSession, recordExamResult, readExamScore, canSubmitExam } from '../utils/ouchn-exam-flow';
 
 /**
  * 模块级状态，供 study 和 work 脚本共享
@@ -175,7 +177,7 @@ async function studyVideo(playbackRate: number, vol: number) {
 
 		$msg.info(`视频学习完成: ${name}`);
 	} catch (err) {
-		$msg.warn('视频加载失败或非视频资源，跳过');
+		throw new Error(`视频加载失败，已停止，未跳过：${err instanceof Error ? err.message : String(err)}`);
 	}
 }
 
@@ -258,6 +260,168 @@ async function goNext() {
 	return false;
 }
 
+/** Stored per exam so reloads and full-page result navigation preserve the retry cap. */
+function examId() {
+	return location.pathname.match(/\/exam\/(\d+)/)?.[1] || location.hash.match(/exam\/(\d+)/)?.[1];
+}
+function examSession(create = false): ExamSession | undefined {
+	const id = examId();
+	if (!id) return;
+	const saved = $store.get(`ouchn.exam.flow.${id}`, undefined) as ExamSession | undefined;
+	if (saved && Date.now() - saved.updated < 24 * 60 * 60 * 1000) return saved;
+	if (create) return { id, failures: 0, seen: [], status: 'answering', updated: Date.now() };
+}
+function saveExamSession(session: ExamSession) {
+	session.updated = Date.now();
+	$store.set(`ouchn.exam.flow.${session.id}`, session);
+}
+function examNotice(content: string) {
+	// A nonblocking popup allows the automatic retry/next action to continue.
+	$message.warn({ content, duration: 0 });
+	browserNotify('国开测验', content).catch(() => {});
+}
+async function waitExamElement(selector: string, seconds = 30): Promise<HTMLElement> {
+	for (let i = 0; i < seconds * 2; i++) {
+		await automation.waitUntilRunning();
+		const el = Array.from(document.querySelectorAll<HTMLElement>(selector)).find(isVisible);
+		if (
+			el &&
+			!el.hasAttribute('disabled') &&
+			el.getAttribute('ng-disabled') !== 'true' &&
+			el.getAttribute('aria-disabled') !== 'true' &&
+			!el.classList.contains('disabled')
+		)
+			return el;
+		await automation.delay(500);
+	}
+	throw new Error('测验页面未出现可用控件，可能没有剩余次数或尚未开放，自动流程已停止。');
+}
+async function submitExam(
+	results: { result?: { finish?: boolean }; error?: unknown }[],
+	worker: Pick<OCSWorker, 'isStop' | 'isClose'>
+) {
+	await automation.waitUntilRunning();
+	while (worker.isStop && !worker.isClose) await automation.delay(500);
+	if (worker.isClose) return;
+	if (!canSubmitExam(document, results)) throw new Error('仍有未成功作答或不支持的题目，已停止自动交卷。');
+	const session = examSession(true);
+	if (!session || ['skip', 'complete', 'stopped'].includes(session.status))
+		throw new Error('当前测验自动流程已结束，请检查后再开始。');
+	const submit = await waitExamElement('[ng-click="calUnsavedSubjects()"]');
+	await automation.waitUntilRunning();
+	submit.click();
+	const confirm = await waitExamElement('#submit-exam-confirmation-popup button[ng-click^="submitAnswer("]');
+	const popup = confirm.closest('#submit-exam-confirmation-popup');
+	if (/还有\s*[1-9]\d*\s*道题目未作答/.test(popup?.textContent || ''))
+		throw new Error('平台提示仍有题目未作答，已停止交卷。');
+	await automation.waitUntilRunning();
+	while (worker.isStop && !worker.isClose) await automation.delay(500);
+	if (worker.isClose || !canSubmitExam(document, results)) return;
+	session.status = 'awaiting-result';
+	saveExamSession(session);
+	confirm.click();
+}
+let examNavigationStarted = false;
+async function runExamNavigation() {
+	if (examNavigationStarted || self !== top) return;
+	examNavigationStarted = true;
+	let waiting = 0;
+	let lastRoute = '';
+	while (true) {
+		await automation.delay(1000);
+		const route = location.pathname + location.hash;
+		if (route !== lastRoute) {
+			waiting = 0;
+			lastRoute = route;
+		}
+		const session = examSession();
+		if (session?.pendingNotice && document.querySelector('.full-screen-mode-wrapper')) {
+			examNotice(session.pendingNotice);
+			delete session.pendingNotice;
+			saveExamSession(session);
+		}
+		if (!session || session.status === 'stopped') continue;
+		try {
+			const result = document.querySelector('.exam-paper.exam-result');
+			if (result && session.status !== 'answering') {
+				const score = readExamScore(document);
+				if (!score) {
+					if (++waiting >= 120) throw new Error('成绩尚未公布或无法读取满分值，已停止自动重答。');
+					continue;
+				}
+				const submission = location.hash.match(/submission\/(\d+)/)?.[1];
+				if (!submission) throw new Error('无法确认提交记录，已停止自动重答。');
+				if (session.status !== 'awaiting-result' && !session.seen.includes(submission)) continue;
+				const outcome = recordExamResult(session, submission, score.score, score.maximum);
+				if (outcome) {
+					session.feedback = Array.from(result.querySelectorAll<HTMLElement>('li.subject:not(.text)')).flatMap(
+						(root) => {
+							try {
+								const question = readChoiceQuestion(root);
+								const options = Array.from(root.querySelectorAll<HTMLElement>('ol.subject-options > li.option'));
+								const earned = root.querySelector('[ng-bind="subject.getScore()"]')?.textContent?.trim();
+								const possible = root.querySelector('[ng-bind="subject.getPoint()"]')?.textContent?.trim();
+								if (!earned || !possible) return [];
+								return [
+									{
+										title: question.title,
+										selected: question.options
+											.filter((_, i) => options[i]?.querySelector<HTMLInputElement>('input')?.checked)
+											.map((o) => o.text),
+										correct: Number(earned) === Number(possible)
+									}
+								];
+							} catch {
+								return [];
+							}
+						}
+					);
+					if (outcome.notice === 'retry')
+						session.pendingNotice = `本次 ${score.score}/${score.maximum} 分，未满分，将自动重答；连续 3 次未满分会跳过。`;
+					if (outcome.notice === 'skip')
+						session.pendingNotice = `连续 3 次未满分（本次 ${score.score}/${score.maximum} 分），已停止重答，即将跳过此测验。`;
+					if (outcome.notice === 'complete')
+						session.pendingNotice = `测验已满分：${score.score}/${score.maximum}，即将进入下一项。`;
+					saveExamSession(session);
+				}
+				const back = await waitExamElement('a[ng-click*="hasUnsavedSubjects"]');
+				if (!back.textContent?.includes('返回测试')) throw new Error('未找到返回测试入口。');
+				await automation.waitUntilRunning();
+				back.click();
+				await automation.delay(2000);
+			} else if (
+				document.querySelector('.full-screen-mode-wrapper') &&
+				/exam\/\d+/.test(location.hash) &&
+				['answering', 'retry'].includes(session.status)
+			) {
+				if (!CommonProject.scripts.settings.methods.getWorkOptions().answererWrappers.length)
+					throw new Error('请先在全局设置填写 DeepSeek API Key，再开始测验。');
+				const start = await waitExamElement('a.take-exam');
+				await automation.waitUntilRunning();
+				start.click();
+				const checkbox = (await waitExamElement(
+					'#start-exam-confirmation-popup input[type="checkbox"]'
+				)) as HTMLInputElement;
+				await automation.waitUntilRunning();
+				if (!checkbox.checked) checkbox.click();
+				const button = await waitExamElement('#start-exam-confirmation-popup button[ng-click="takeExam()"]');
+				await automation.waitUntilRunning();
+				session.status = 'answering';
+				saveExamSession(session);
+				button.click();
+				await automation.delay(3000);
+			} else if (session.status === 'awaiting-result' && ++waiting >= 120) {
+				throw new Error('交卷后未出现可确认成绩，已停止，避免重复提交。');
+			}
+		} catch (err) {
+			session.status = 'stopped';
+			saveExamSession(session);
+			examNotice(err instanceof Error ? err.message : String(err));
+			automation.setPaused(true);
+		}
+	}
+}
+
 /**
  * 国开考试自动答题（测试版）
  * 支持：单选、多选、判断、填空
@@ -275,6 +439,7 @@ function ouchnExamWork({ answererWrappers, period, thread, answerSeparators, ans
 			.join(',');
 	};
 
+	const clearedQuestions = new WeakSet<Element>();
 	const worker = new OCSWorker({
 		// 排除 text(章节标题)、short_answer(简答)、analysis(综合)、matching(匹配) 等无法自动答题的类型
 		root: '.subjects-jit-display > li.subject:not(.text):not(.short_answer):not(.analysis):not(.matching)',
@@ -289,6 +454,8 @@ function ouchnExamWork({ answererWrappers, period, thread, answerSeparators, ans
 			await automation.waitUntilRunning();
 			if (useWebSearch) {
 				const question = readChoiceQuestion(ctx.root);
+				const previous = examSession()?.feedback?.find((item) => item.title === question.title);
+				if (previous) question.previousAttempt = { selectedOptions: previous.selected, wasCorrect: previous.correct };
 				await automation.delay((period ?? 3) * 1000);
 				return defaultAnswerWrapperHandler(searchWrappers, {
 					question,
@@ -333,6 +500,18 @@ function ouchnExamWork({ answererWrappers, period, thread, answerSeparators, ans
 				await automation.waitUntilRunning();
 				if (worker.isClose) return;
 				if (type === 'single' || type === 'judgement' || type === 'multiple') {
+					const root = option.closest?.('li.subject');
+					if (type === 'multiple' && root && !clearedQuestions.has(root)) {
+						for (const checked of Array.from(
+							root.querySelectorAll<HTMLInputElement>('input[type="checkbox"]:checked')
+						)) {
+							await automation.waitUntilRunning();
+							const label = checked.closest('label');
+							if (label) label.click();
+							else checked.click();
+						}
+						clearedQuestions.add(root);
+					}
 					const input = option.querySelector<HTMLInputElement>('input');
 					if (input && !input.checked) {
 						const label = option.querySelector('label');
@@ -361,13 +540,18 @@ function ouchnExamWork({ answererWrappers, period, thread, answerSeparators, ans
 	state.worker = worker;
 	worker
 		.doWork({ enable_debug: BackgroundProject.scripts.dev.cfg.enable_answerer_debug })
-		.then(() => {
-			const doneMsg = '考试题目已自动作答，请检查后手动提交。';
-			$message.info({ content: doneMsg, duration: 0 });
-			browserNotify('国开考试：需要手动交卷', doneMsg).catch(() => {});
+		.then(async (results) => {
+			await submitExam(results, worker);
 			worker.emit('done');
 		})
 		.catch((err) => {
+			const session = examSession(true);
+			if (session) {
+				session.status = 'stopped';
+				saveExamSession(session);
+			}
+			automation.setPaused(true);
+			worker.emit('done');
 			const errMsg = `答题失败: ${err}`;
 			$message.error({ content: errMsg, duration: 0 });
 			browserNotify('国开考试：答题出错', errMsg).catch(() => {});
@@ -399,6 +583,7 @@ export const OUHNProject = Project.create({
 			},
 			oncomplete() {
 				mountAutomationPanel();
+				runExamNavigation();
 				if (document.querySelector('.full-screen-mode-wrapper')) {
 					$msg.info('已进入学习页面，等待自动运行...');
 					return;
@@ -414,7 +599,7 @@ export const OUHNProject = Project.create({
 				notes: {
 					defaultValue: $ui.notes([
 						'自动播放视频并自动跳转下一个任务。',
-						'非视频资源（图文、资料等）会自动跳过。',
+						'图文与课件会缓慢阅读到末尾，再进入下一项；不支持的阅读器会停留提示。',
 						'请勿在播放过程中最小化浏览器。'
 					]).outerHTML
 				},
@@ -451,7 +636,36 @@ export const OUHNProject = Project.create({
 
 								const rate = parseFloat(this.cfg.playbackRate?.toString() || '1');
 								const vol = this.cfg.volume ?? 0;
-								await studyVideo(rate, vol);
+								const active = document.querySelector('.full-screen-mode-sidebar-menu-item.active');
+								if (active?.querySelector('.font-syllabus-exam') || /exam\/\d+/.test(location.hash)) {
+									const session = examSession(true);
+									if (!session) throw new Error('无法识别测验编号，停止切换。');
+									saveExamSession(session);
+									while (true) {
+										await automation.delay(1000);
+										const latest = examSession();
+										if (latest?.status === 'stopped') throw new Error('测验流程已停止，请检查提示。');
+										if (latest && ['complete', 'skip'].includes(latest.status)) {
+											if (latest.pendingNotice) {
+												const notice = latest.pendingNotice;
+												delete latest.pendingNotice;
+												saveExamSession(latest);
+												examNotice(notice);
+											}
+											break;
+										}
+									}
+								} else if (
+									active?.querySelector('.font-syllabus-online-video') ||
+									(!active && document.querySelector('video.vjs-tech'))
+								) {
+									await studyVideo(rate, vol);
+								} else if (
+									active?.querySelector('.font-syllabus-page, .font-syllabus-material, .font-syllabus-slide')
+								) {
+									$msg.info('正在逐段阅读图文/课件，读到末尾后进入下一项...');
+									await readLearningResource(document, automation);
+								} else throw new Error('不支持的资源类型，已停止，未跳过。');
 
 								const hasNext = await goNext();
 								if (!hasNext) break;
@@ -469,7 +683,7 @@ export const OUHNProject = Project.create({
 		}),
 		/**
 		 * 课程章节页导航脚本
-		 * 在课程章节列表页（/course/{id}/ng）检测并跳转到第一个未完成的视频任务
+		 * 在课程章节列表页（/course/{id}/ng）检测并跳转到第一个未完成的学习任务
 		 */
 		courseNav: new Script({
 			name: '📋 课程导航',
@@ -478,13 +692,13 @@ export const OUHNProject = Project.create({
 			configs: {
 				notes: {
 					defaultValue: $ui.notes([
-						'在课程章节列表页自动检测未完成的视频任务。',
-						'开启"自动跳转"后，3 秒内自动进入第一个未完成视频。',
+						'在课程章节列表页自动检测未完成的学习任务。',
+						'开启"自动跳转"后，3 秒内自动进入第一个未完成学习任务。',
 						'关闭时仅显示按钮，需手动点击跳转。'
 					]).outerHTML
 				},
 				autoJump: {
-					label: '自动跳转未完成视频',
+					label: '自动跳转未完成学习任务',
 					defaultValue: true,
 					type: 'boolean' as const
 				}
@@ -506,8 +720,9 @@ export const OUHNProject = Project.create({
 						const summaryEl = activity.querySelector<HTMLElement>('[ng-switch-when].activity-summary');
 						if (!summaryEl) continue;
 						const activityType = summaryEl.getAttribute('ng-switch-when');
-						// 只跳转视频任务
-						if (activityType !== 'online_video') continue;
+						// 按课程顺序保留视频、图文、课件与测验任务
+						if (!activityType || !['online_video', 'page', 'material', 'slide', 'exam'].includes(activityType))
+							continue;
 						return { activityId: idMatch[1], activityType };
 					}
 					return null;
@@ -527,7 +742,7 @@ export const OUHNProject = Project.create({
 
 						const result = findFirstIncompleteVideo();
 						if (!result) {
-							$msg.success('没有未完成的视频任务！');
+							$msg.success('没有未完成的学习任务！');
 							return;
 						}
 
@@ -535,24 +750,26 @@ export const OUHNProject = Project.create({
 						const courseId = getCourseId();
 						const url = `/course/${courseId}/learning-activity/full-screen#/${activityId}`;
 
-						// 统计未完成视频总数
+						// 统计未完成学习任务总数
 						const allActivities = Array.from(document.querySelectorAll<HTMLElement>('.learning-activity'));
 						const totalVideos = allActivities.filter((a) => {
 							if (a.classList.contains('ng-hide') || a.style.display === 'none') return false;
 							if (!a.querySelector('.completeness.none, .completeness.part')) return false;
 							if (a.querySelector('.title.locked')) return false;
 							const summary = a.querySelector('[ng-switch-when].activity-summary');
-							return summary?.getAttribute('ng-switch-when') === 'online_video';
+							return ['online_video', 'page', 'material', 'slide', 'exam'].includes(
+								summary?.getAttribute('ng-switch-when') || ''
+							);
 						}).length;
 
-						$msg.info(`检测到 ${totalVideos} 个未完成视频任务`);
+						$msg.info(`检测到 ${totalVideos} 个未完成学习任务任务`);
 
 						if (courseId) {
 							const old = document.getElementById('ocs-course-nav-btn');
 							if (old) old.remove();
 							const btn = document.createElement('button');
 							btn.id = 'ocs-course-nav-btn';
-							btn.textContent = `▶ 前往第一个未完成视频（共 ${totalVideos} 个）`;
+							btn.textContent = `▶ 前往第一个未完成学习任务（共 ${totalVideos} 个）`;
 							btn.style.cssText = [
 								'position:fixed',
 								'bottom:20px',
@@ -603,9 +820,9 @@ export const OUHNProject = Project.create({
 			configs: {
 				notes: {
 					defaultValue: $ui.notes([
-						'【测试版】支持单选、多选、判断、填空自动答题。',
+						'【测试版】支持文本单选、多选、判断自动答题。',
 						'使用前请在“通用-全局设置”中填写 DeepSeek API Key。',
-						'从网页读取题干和选项文本，先联网搜索再分析；答完后请手动提交。',
+						'从网页读取题干和选项文本，先联网搜索再分析；全部支持题型答完后自动交卷，未满分重答，连续 3 次未满分跳过。',
 						'简答题/综合题不支持自动答题，需手动填写。'
 					]).outerHTML
 				}
@@ -616,6 +833,18 @@ export const OUHNProject = Project.create({
 					CommonProject.scripts.render.methods.pin(this);
 					commonWork(this, {
 						beforeRunning: () => automation.waitUntilRunning(),
+						onRestart: () => {
+							const session = examSession(true);
+							if (session) {
+								if (['complete', 'skip'].includes(session.status)) {
+									session.failures = 0;
+									session.seen = [];
+								}
+								session.status = 'answering';
+								delete session.pendingNotice;
+								saveExamSession(session);
+							}
+						},
 						workerProvider: (opts) => ouchnExamWork(opts)
 					});
 				});
