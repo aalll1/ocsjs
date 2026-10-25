@@ -600,11 +600,21 @@ export const OUHNProject = Project.create({
 					defaultValue: $ui.notes([
 						'自动播放视频并自动跳转下一个任务。',
 						'图文与课件会缓慢阅读到末尾，再进入下一项；不支持的阅读器会停留提示。',
+						'阅读滚动速度可在下方调整，默认 3x，调整后下一步滚动即生效。',
 						'请勿在播放过程中最小化浏览器。'
 					]).outerHTML
 				},
 				playbackRate: playbackRate,
 				volume: volume,
+				readingSpeed: {
+					label: '阅读滚动速度',
+					tag: 'select',
+					options: [0.5, 1, 2, 3, 5, 10].map((speed) => [
+						speed.toString(),
+						`${speed} x${speed === 3 ? '（默认）' : ''}`
+					]),
+					defaultValue: '3'
+				},
 				restudy: restudy
 			},
 			oncomplete() {
@@ -664,7 +674,7 @@ export const OUHNProject = Project.create({
 									active?.querySelector('.font-syllabus-page, .font-syllabus-material, .font-syllabus-slide')
 								) {
 									$msg.info('正在逐段阅读图文/课件，读到末尾后进入下一项...');
-									await readLearningResource(document, automation);
+									await readLearningResource(document, automation, () => Number(this.cfg.readingSpeed));
 								} else throw new Error('不支持的资源类型，已停止，未跳过。');
 
 								const hasNext = await goNext();
