@@ -25,6 +25,8 @@ export interface SearchInformation {
  * 题库配置器
  */
 export interface AnswererWrapper {
+	/** Built-in multi-request provider; omitted for existing wrappers. */
+	provider?: 'deepseek-search';
 	/** 答题器请求路径 */
 	url: string;
 	/** 题库名字 */

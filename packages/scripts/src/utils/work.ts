@@ -84,7 +84,7 @@ export function commonWork(
 		script.on('render', () => {
 			let gotoSettingsBtnContainer: string | HTMLElement = '';
 			if (checkFailed) {
-				const gotoSettingsBtn = $ui.button('👉 前往设置题库配置', {
+				const gotoSettingsBtn = $ui.button('👉 前往 DeepSeek 设置', {
 					className: 'base-style-button',
 					style: { flex: '1', padding: '4px' }
 				});
@@ -273,13 +273,13 @@ export const answerWrapperEmptyWarning = cors.defineTopFunction((duration: numbe
 	setting.onclick = () => {
 		CommonProject.scripts.render.methods.pin(CommonProject.scripts.settings);
 		setTimeout(() => {
-			$elements.root?.querySelector<HTMLElement>('[value="点击配置"]')?.click();
+			$elements.root?.querySelector<HTMLInputElement>('input[type="password"]')?.focus();
 		}, 500);
 	};
 
 	answererWrapperUnsetMessage?.remove();
 	answererWrapperUnsetMessage = $message.warn({
-		content: h('span', {}, ['你还没设置题库，无法自动答题，请切换到 ', setting, ' 页面进行配置。']),
+		content: h('span', {}, ['请先填写有效的 DeepSeek API Key，再开始联网答题。前往 ', setting, ' 页面进行配置。']),
 		duration: duration
 	});
 });

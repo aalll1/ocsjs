@@ -17,6 +17,28 @@ const transformImgLinkOfQuestion = (question: string) => {
 	});
 };
 
+/** Sources and model notes are rendered as text, never as executable HTML. */
+function createWebEvidence(extra: any): HTMLElement[] {
+	if (!extra.webSearch) return [];
+	const label = h('div', { innerText: '已联网检索 · 答案依据', style: { marginTop: '8px', fontWeight: 'bold' } });
+	const reason = h('div', { innerText: String(extra.evidence || '') });
+	const sources = h('ul');
+	for (const source of Array.isArray(extra.sources) ? extra.sources : []) {
+		if (typeof source?.url !== 'string' || !/^https?:\/\//i.test(source.url)) continue;
+		sources.append(
+			h('li', [
+				h('a', {
+					href: source.url,
+					target: '_blank',
+					rel: 'noopener noreferrer',
+					innerText: String(source.title || source.url)
+				})
+			])
+		);
+	}
+	return [label, reason, sources];
+}
+
 /**
  * 搜索结果元素
  */
@@ -107,7 +129,8 @@ export class SearchInfosElement extends HTMLElement {
 										  )
 										: []),
 									...splitAnswer(answer).map((a) => h('code', { innerHTML: a }))
-								])
+								]),
+								...createWebEvidence(extra_data)
 							]);
 						})
 					])

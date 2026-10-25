@@ -1,6 +1,7 @@
 import { AnswererWrapper, SearchInformation, Result } from './interface';
 import { request } from '../utils/request';
 import { $ } from '../../utils';
+import { answerWithDeepSeekSearch } from './deepseek.search';
 
 export const AnswerWrapperHandlerConfig = {
 	// 超时时间，单位毫秒
@@ -70,6 +71,15 @@ export async function defaultAnswerWrapperHandler(
 				handler = 'return (res)=> [JSON.stringify(res), undefined]'
 			} = wrapper;
 			try {
+				if (wrapper.provider === 'deepseek-search') {
+					const result = await answerWithDeepSeekSearch(env.question, wrapper, {
+						request: (url, data, headers) =>
+							request(url, { type, method: 'post', responseType: 'json', data, headers }),
+						beforeRequest: env.beforeRequest
+					});
+					searchInfos.push({ name, homepage, url: wrapper.url, results: [result] });
+					return;
+				}
 				// 答案列表
 				let results: Result[] = [];
 				// 请求数据

@@ -6,16 +6,36 @@ import {
 	SimplifyWorkResult,
 	$,
 	WorkUploadType,
-	AnswerWrapperHandlerConfig
+	AnswerWrapperHandlerConfig,
+	createDeepSeekSearchWrapper
 } from '@ocsjs/core';
 import { $message, h, $gm, $store, Project, Script, $modal, StoreListenerType, $ui } from 'easy-us';
 import type { AnswerMatchMode, AnswererWrapper, SearchInformation } from '@ocsjs/core';
+import type { Config } from 'easy-us';
 import { CXProject, ICourseProject, IcveMoocProject, ZHSProject, ZJYProject } from '../index';
 import { markdown } from '../utils/markdown';
 import { enableCopy } from '../utils';
 import { SearchInfosElement } from '../elements/search.infos';
 import { RenderScript } from '../render';
 import { dropdownStyle } from '../utils/configs';
+
+// Keep legacy implementations in source; this build exposes DeepSeek settings only.
+const ENABLE_LEGACY_QUESTION_BANK_UI = false;
+function deepSeekOnlySettings<T extends Record<string, Config>>(configs: T): T {
+	if (ENABLE_LEGACY_QUESTION_BANK_UI) return configs;
+	const visible = configs as Record<string, Config>;
+	for (const key of [
+		'answererWrappers', 'disabledAnswererWrapperNames', 'answererWrappersButton',
+		'enableQuestionCaches', 'upload', 'work-when-no-job', 'randomWork-choice',
+		'randomWork-complete', 'randomWork-completeTexts-textarea', 'advancedSettings',
+		'answerWrapperHandlerTimeout', 'stopSecondWhenFinish', 'answerSeparators',
+		'answerMatchMode', 'redundanceWordsText'
+	]) {
+		if (visible[key]) visible[key] = { defaultValue: visible[key].defaultValue };
+	}
+	if (visible.period) { delete visible.period.showIf; delete visible.period.elementClassName; }
+	return configs;
+}
 
 const TAB_WORK_RESULTS_KEY = 'common.work-results.results';
 
@@ -107,13 +127,27 @@ export const CommonProject = Project.create({
 			name: '⚙️ 全局设置',
 			matches: [['所有页面', /.*/]],
 			namespace: 'common.settings',
-			configs: {
+			configs: deepSeekOnlySettings({
 				notes: {
 					defaultValue: $ui.notes([
 						'✨鼠标移动到按钮或者输入框，可以看到提示！',
-						'想要自动答题必须设置 “题库配置” ',
-						'设置后进入章节测试，作业，考试页面即可自动答题。'
+						'填写 DeepSeek 官方 API Key 后，题目将先联网搜索再分析。',
+						'设置自动保存；修改后刷新答题页。当前优先支持国开文本单选、多选和判断题。'
 					]).outerHTML
+				},
+				deepseekApiKey: {
+					separator: 'DeepSeek 联网答题',
+					label: 'DeepSeek API Key',
+					defaultValue: '',
+					attrs: { type: 'password', autocomplete: 'off', placeholder: 'sk-…', title: '仅保存在脚本管理器本地；设置导出不包含 API Key。' }
+				},
+				deepseekModel: {
+					label: '分析模型', tag: 'select', defaultValue: 'deepseek-flash',
+					options: [['deepseek-flash', 'DeepSeek Flash'], ['deepseek-v4-pro', 'DeepSeek V4 Pro']]
+				},
+				deepseekSearchCount: {
+					label: '每题搜索结果数', tag: 'select', defaultValue: '5',
+					options: [['3', '3 条'], ['5', '5 条']]
 				},
 				answererWrappers: {
 					separator: '自动答题设置',
@@ -162,6 +196,7 @@ export const CommonProject = Project.create({
 									},
 									[
 										h('option', '默认'),
+										h('option', { title: '国开文本选择题：先联网检索，再分析答案；输入 DeepSeek 官方 API Key，可加 |模型名。' }, 'DeepSeek AI（先搜索）'),
 										h(
 											'option',
 											{
@@ -189,7 +224,9 @@ export const CommonProject = Project.create({
 							);
 
 							select.onchange = () => {
-								if (select.value === 'DeepSeek AI') {
+								if (select.value === 'DeepSeek AI（先搜索）') {
+									textarea.placeholder = '输入 DeepSeek 官方 API Key（sk-...），默认 deepseek-flash，可加 |deepseek-v4-pro；每题先联网搜索。';
+								} else if (select.value === 'DeepSeek AI') {
 									textarea.placeholder = '输入 DeepSeek API Key（格式：sk-xxxx，可加 |模型名，如 sk-xxx|deepseek-reasoner）';
 								} else if (select.value === 'Perplexity AI（联网）') {
 									textarea.placeholder = '输入 Perplexity API Key（格式：pplx-xxxx，可加 |模型名，如 pplx-xxx|sonar-pro）';
@@ -199,6 +236,11 @@ export const CommonProject = Project.create({
 									textarea.placeholder = aw.length ? '重新输入题库配置' : '输入你的题库配置...，不会请看上方填写教程';
 								}
 							};
+
+							if (!aw.length) {
+								select.value = 'DeepSeek AI（先搜索）';
+								textarea.placeholder = '输入 DeepSeek 官方 API Key（sk-...），默认 deepseek-flash，可加 |模型名；每题先联网搜索。';
+							}
 
 							const modal = $modal.prompt({
 								width: 600,
@@ -342,6 +384,14 @@ export const CommonProject = Project.create({
 																},
 																handler: "return (res)=>res.answer.allAnswer.map(i=>([res.question,i.join('#')]))"
 															});
+														} else if (select.value === 'DeepSeek AI（先搜索）') {
+															const [apiKey, model] = value.trim().split('|').map(part => part.trim());
+															if (!apiKey.startsWith('sk-')) {
+																$modal.alert({ content: 'DeepSeek API Key 应以 sk- 开头。' });
+																return;
+															}
+															awsResult.push(createDeepSeekSearchWrapper(apiKey, model));
+															select.value = '默认';
 														} else if (select.value === 'DeepSeek AI' || select.value === 'Perplexity AI（联网）') {
 															const parserName = select.value;
 															const isPerplexity = parserName === 'Perplexity AI（联网）';
@@ -529,14 +579,14 @@ export const CommonProject = Project.create({
 					}
 				},
 				thread: {
-					label: '线程数量（个）',
+					label: '并发题数',
 					attrs: {
 						type: 'number',
 						min: 1,
 						step: 1,
 						max: 3,
 						title:
-							'同一时间内答题线程工作的数量（例子：三个线程则代表一秒内同时搜索三道题），过多可能导致题库服务器压力过大，请适当调低。'
+							'同时处理的题目数量，默认 1，便于查看每题检索来源。'
 					},
 					defaultValue: 1
 				},
@@ -608,7 +658,7 @@ export const CommonProject = Project.create({
 				period: {
 					showIf: 'common.settings.advancedSettings',
 					elementClassName: 'config-details',
-					label: '搜题间隔（秒）',
+					label: '请求间隔（秒）',
 					attrs: {
 						type: 'number',
 						min: 1,
@@ -714,23 +764,23 @@ export const CommonProject = Project.create({
 					defaultValue: true,
 					attrs: { type: 'checkbox', title: '详情请前往 通用-其他应用-题库拓展查看。' }
 				}
-			},
+			}),
 			methods() {
 				return {
 					/**
 					 * 获取自动答题配置，包括题库配置
 					 */
+					getDeepSeekWrappers: (): AnswererWrapper[] => {
+						const key = this.cfg.deepseekApiKey.trim();
+						if (!key.startsWith('sk-')) return [];
+						return [createDeepSeekSearchWrapper(key, this.cfg.deepseekModel, Number(this.cfg.deepseekSearchCount))];
+					},
 					getWorkOptions: () => {
-						// 使用 json 深拷贝，防止修改原始配置
 						const workOptions: typeof this.cfg = JSON.parse(JSON.stringify(this.cfg));
-
-						/**
-						 * 过滤掉被禁用的题库
-						 */
-						workOptions.answererWrappers = workOptions.answererWrappers.filter(
-							(aw) => this.cfg.disabledAnswererWrapperNames.find((daw) => daw === aw.name) === undefined
-						);
-
+						workOptions.answererWrappers = this.methods.getDeepSeekWrappers();
+						workOptions.enableQuestionCaches = false;
+						workOptions['randomWork-choice'] = false;
+						workOptions['randomWork-complete'] = false;
 						return workOptions;
 					},
 					/**
@@ -786,12 +836,27 @@ export const CommonProject = Project.create({
 			},
 			// 实时更新内部设置
 			oncomplete() {
+				const syncDeepSeek = () => {
+					this.cfg.answererWrappers = this.methods.getDeepSeekWrappers();
+					this.cfg.enableQuestionCaches = false;
+				};
+				syncDeepSeek();
+				this.onConfigChange('deepseekApiKey', syncDeepSeek);
+				this.onConfigChange('deepseekModel', syncDeepSeek);
+				this.onConfigChange('deepseekSearchCount', syncDeepSeek);
 				AnswerWrapperHandlerConfig.timeout_seconds = this.cfg.answerWrapperHandlerTimeout;
 				this.onConfigChange('answerWrapperHandlerTimeout', (sec) => {
 					AnswerWrapperHandlerConfig.timeout_seconds = sec;
 				});
 			},
 			onrender({ panel }) {
+				if (!ENABLE_LEGACY_QUESTION_BANK_UI) {
+					panel.body.replaceChildren(h('div', { className: 'notes' }, [
+						'固定流程：读取题干和选项文本 → 联网搜索 → AI 分析 → 勾选。',
+						h('br'), '搜索失败或证据不足会显示错误；不会改用纯模型或随机答案。'
+					]));
+					return;
+				}
 				// 因为需要用到 GM_xhr 所以判断是否处于用户脚本环境
 				if ($gm.isInGMContext()) {
 					panel.body.replaceChildren(...(this.cfg.answererWrappers.length ? [h('hr')] : []));
@@ -912,7 +977,7 @@ export const CommonProject = Project.create({
 			namespace: 'common.work-results',
 			configs: {
 				notes: {
-					defaultValue: $ui.notes(['点击题目序号，查看搜索结果', '如果没有搜到，可能是题库没有收录该题目答案'])
+					defaultValue: $ui.notes(['点击题目序号，查看搜索结果', '每题可查看联网来源和分析依据；搜索失败时不会自动猜测。'])
 						.outerHTML
 				},
 				/**
@@ -1255,7 +1320,7 @@ export const CommonProject = Project.create({
 								} else if (result.error) {
 									info = h('div', { className: 'result-info error' }, '❌ ' + result.error);
 								} else if (result.searchInfos.length === 0) {
-									info = h('div', { className: 'result-info no-answer' }, '❌ 题库没搜索到答案');
+									info = h('div', { className: 'result-info no-answer' }, '❌ 未获得有效的联网答案');
 								} else {
 									info = result.finish
 										? null
@@ -1295,6 +1360,7 @@ export const CommonProject = Project.create({
 			name: '🔎 在线搜题',
 			matches: [['所有页面', /.*/]],
 			namespace: 'common.online-search',
+			hideInPanel: !ENABLE_LEGACY_QUESTION_BANK_UI,
 			configs: {
 				notes: {
 					defaultValue: '查题前请在 “通用-全局设置” 中设置题库配置，才能进行在线搜题。'
@@ -1320,6 +1386,7 @@ export const CommonProject = Project.create({
 				}
 			},
 			oncomplete() {
+				if (!ENABLE_LEGACY_QUESTION_BANK_UI) return;
 				document.addEventListener(
 					'selectionchange',
 					debounce(() => {
@@ -1635,12 +1702,13 @@ export const CommonProject = Project.create({
 						{
 							innerText: '📤 导出全部设置',
 							style: btnStyle,
-							title: '导出全部页面的设置，包括全局设置，题库配置，学习设置等等。（文件后缀名为：.ocssetting）'
+							title: '导出页面设置（不包含 DeepSeek API Key 和旧题库凭据）。（文件后缀名为：.ocssetting）'
 						},
 						(btn) => {
 							btn.onclick = () => {
 								const setting = Object.create({});
 								for (const key of $store.list()) {
+									if (/deepseekApiKey|answererWrappers/i.test(key)) continue;
 									const val = $store.get(key);
 									if (val) {
 										Reflect.set(setting, key, val);
@@ -1699,7 +1767,7 @@ export const CommonProject = Project.create({
 				const sep = (text: string) => h('div', { className: 'separator', style: { padding: '4px 0px' } }, text);
 
 				panel.body.replaceChildren(
-					h('div', [sep('题库拓展'), cachesBtn, sep('其他功能'), exportSetting, importSetting])
+					h('div', [...(ENABLE_LEGACY_QUESTION_BANK_UI ? [sep('题库拓展'), cachesBtn] : []), sep('其他功能'), exportSetting, importSetting])
 				);
 			}
 		})

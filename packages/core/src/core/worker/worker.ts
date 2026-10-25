@@ -171,18 +171,23 @@ export class OCSWorker<E extends RawElements = RawElements> extends CommonEventE
 
 		const waitForRequested = async (result: WorkResult<E>) => {
 			return new Promise<void>((resolve, reject) => {
+				let elapsed = 0;
+				let lastTick = Date.now();
 				const interval = setInterval(() => {
-					if (result?.requested === true) {
+					const now = Date.now();
+					if (!this.isStop) elapsed += now - lastTick;
+					lastTick = now;
+					if (this.isClose) {
 						clearInterval(interval);
-						clearTimeout(timeout);
+						reject(new Error('答题器已关闭。'));
+					} else if (result?.requested === true && !this.isStop) {
+						clearInterval(interval);
 						resolve();
+					} else if (elapsed >= (AnswerWrapperHandlerConfig.timeout_seconds + 10) * 1000) {
+						clearInterval(interval);
+						reject(new Error('答题超时！'));
 					}
 				}, 200);
-
-				const timeout = setTimeout(() => {
-					clearInterval(interval);
-					reject(new Error('答题超时！'));
-				}, (AnswerWrapperHandlerConfig.timeout_seconds + 10) * 1000);
 			});
 		};
 

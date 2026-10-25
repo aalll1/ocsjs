@@ -8,6 +8,7 @@ import { BackgroundProject } from './background';
 import { waitForElement } from '../utils/study';
 import { playbackRate, volume, restudy } from '../utils/configs';
 import { commonWork, simplifyWorkResult } from '../utils/work';
+import { getChoiceQuestionType, readChoiceQuestion } from '../utils/choice-question';
 
 /**
  * 模块级状态，供 study 和 work 脚本共享
@@ -262,7 +263,9 @@ async function goNext() {
  * 支持：单选、多选、判断、填空
  */
 function ouchnExamWork({ answererWrappers, period, thread, answerSeparators, answerMatchMode }: CommonWorkOptions) {
-	$message.info({ content: '开始国开考试自动答题...' });
+	const searchWrappers = answererWrappers.filter((wrapper) => wrapper.provider === 'deepseek-search');
+	const useWebSearch = searchWrappers.length > 0;
+	$message.info({ content: useWebSearch ? '开始国开联网检索答题...' : '开始国开考试自动答题...' });
 	CommonProject.scripts.workResults.methods.init();
 
 	const titleTransform = (titles: (HTMLElement | undefined)[]) => {
@@ -284,6 +287,15 @@ function ouchnExamWork({ answererWrappers, period, thread, answerSeparators, ans
 		answerMatchMode,
 		answerer: async (elements, ctx) => {
 			await automation.waitUntilRunning();
+			if (useWebSearch) {
+				const question = readChoiceQuestion(ctx.root);
+				await automation.delay((period ?? 3) * 1000);
+				return defaultAnswerWrapperHandler(searchWrappers, {
+					question,
+					title: question.title,
+					beforeRequest: () => automation.waitUntilRunning()
+				});
+			}
 			const title = titleTransform(elements.title);
 			if (title) {
 				const typeNames: Record<string, string> = {
@@ -306,6 +318,8 @@ function ouchnExamWork({ answererWrappers, period, thread, answerSeparators, ans
 		},
 		work: {
 			type(ctx) {
+				const choiceType = getChoiceQuestionType(ctx.root);
+				if (choiceType) return choiceType;
 				const opts = ctx.elements.options;
 				if (!opts.length) return undefined;
 				if (opts.some((o) => o.querySelector('input[type="text"]'))) return 'completion';
@@ -337,7 +351,7 @@ function ouchnExamWork({ answererWrappers, period, thread, answerSeparators, ans
 		},
 		onResultsUpdate(curr, _, res) {
 			CommonProject.scripts.workResults.methods.setResults(simplifyWorkResult(res, titleTransform));
-			if (curr.result?.finish) {
+			if (curr.result?.finish && !useWebSearch) {
 				CommonProject.scripts.apps.methods.addQuestionCacheFromWorkResult(simplifyWorkResult([curr], titleTransform));
 			}
 			CommonProject.scripts.workResults.methods.updateWorkStateByResults(res);
@@ -590,8 +604,8 @@ export const OUHNProject = Project.create({
 				notes: {
 					defaultValue: $ui.notes([
 						'【测试版】支持单选、多选、判断、填空自动答题。',
-						'使用前请在 "通用-全局设置" 中配置题库。',
-						'进入考试答题页面后脚本自动识别并运行，答完后请手动提交。',
+						'使用前请在“通用-全局设置”中填写 DeepSeek API Key。',
+						'从网页读取题干和选项文本，先联网搜索再分析；答完后请手动提交。',
 						'简答题/综合题不支持自动答题，需手动填写。'
 					]).outerHTML
 				}
