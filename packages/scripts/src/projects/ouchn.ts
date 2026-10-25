@@ -1,9 +1,11 @@
 import { $, OCSWorker, defaultAnswerWrapperHandler } from '@ocsjs/core';
-import { Project, Script, $ui, $message } from 'easy-us';
+import { Project, Script, $ui, $message, $store } from 'easy-us';
+import { createAutomationControl } from '../utils/automation-control';
+import { enablePanelDrag } from '../utils/panel-drag';
 import { playMedia, $msg, CommonWorkOptions } from '../utils';
 import { CommonProject } from './common';
 import { BackgroundProject } from './background';
-import { waitForElement, waitForMedia } from '../utils/study';
+import { waitForElement } from '../utils/study';
 import { playbackRate, volume, restudy } from '../utils/configs';
 import { commonWork, simplifyWorkResult } from '../utils/work';
 
@@ -12,12 +14,89 @@ import { commonWork, simplifyWorkResult } from '../utils/work';
  */
 const state = {
 	study: {
-		/** 用户手动暂停 */
-		paused: false,
+		resumeAfterPause: false,
 		/** 当前播放的媒体元素 */
 		currentMedia: undefined as HTMLVideoElement | undefined
-	}
+	},
+	worker: undefined as Pick<OCSWorker, 'emit'> | undefined
 };
+
+const automation = createAutomationControl();
+const pauseKey = 'ouchn.automation.paused';
+let controlInitialized = false;
+
+function initializeAutomationControl() {
+	if (controlInitialized) return;
+	controlInitialized = true;
+	automation.setPaused(Boolean($store.get(pauseKey, false)));
+	automation.subscribe((paused) => {
+		try {
+			if ($store.get(pauseKey, false) !== paused) $store.set(pauseKey, paused);
+		} catch {
+			// Pausing must still stop automation if persistent storage is unavailable.
+		}
+		const video = document.querySelector<HTMLVideoElement>('video.vjs-tech') || state.study.currentMedia;
+		if (paused) {
+			state.study.resumeAfterPause = !!video && !video.paused && !video.ended;
+			video?.pause();
+			state.worker?.emit('stop');
+		} else {
+			state.worker?.emit('continuate');
+			if (state.study.resumeAfterPause && video && !video.ended) {
+				startPlayback(video).catch(() => {});
+			}
+			state.study.resumeAfterPause = false;
+		}
+	});
+	$store.addChangeListener(pauseKey, (paused) => automation.setPaused(Boolean(paused)));
+	// Also stop platform autoplay when a page is opened while the script is paused.
+	document.addEventListener(
+		'play',
+		(event) => {
+			if (automation.isPaused() && event.target instanceof HTMLMediaElement) event.target.pause();
+		},
+		true
+	);
+}
+
+function mountAutomationToolbar() {
+	if (self !== top || document.getElementById('ocs-ouchn-control')) return;
+	const host = document.createElement('div');
+	host.id = 'ocs-ouchn-control';
+	const saved = $store.get('ouchn.control.position', { x: 12, y: 12 });
+	const savedX = Number(saved?.x);
+	const savedY = Number(saved?.y);
+	const x = Math.max(0, Math.min(Number.isFinite(savedX) ? savedX : 12, Math.max(0, innerWidth - 270)));
+	const y = Math.max(0, Math.min(Number.isFinite(savedY) ? savedY : 12, Math.max(0, innerHeight - 40)));
+	host.style.cssText = `position:fixed!important;left:${x}px;top:${y}px;z-index:2147483647!important`;
+	const root = host.attachShadow({ mode: 'closed' });
+	const bar = document.createElement('div');
+	bar.style.cssText =
+		'display:flex;align-items:center;gap:8px;padding:8px;background:#fff;color:#222;border:1px solid #aaa;border-radius:8px;box-shadow:0 2px 10px #0003;font:14px sans-serif';
+	const grip = document.createElement('span');
+	grip.textContent = '⠿ 国开脚本';
+	grip.title = '按住拖动控制条';
+	grip.style.cssText = 'cursor:move;user-select:none;white-space:nowrap';
+	const status = document.createElement('span');
+	const button = document.createElement('button');
+	button.type = 'button';
+	button.style.cssText =
+		'cursor:pointer;border:0;border-radius:5px;padding:7px 10px;color:white;font:inherit;white-space:nowrap';
+	const update = () => {
+		const paused = automation.isPaused();
+		status.textContent = paused ? '已暂停' : '运行中';
+		button.textContent = paused ? '▶ 继续运行' : '⏸ 暂停全部';
+		button.style.background = paused ? '#16803c' : '#b42318';
+		button.setAttribute('aria-pressed', String(paused));
+	};
+	button.onclick = () => automation.setPaused(!automation.isPaused());
+	bar.append(grip, status, button);
+	root.append(bar);
+	document.documentElement.append(host);
+	enablePanelDrag(host, grip, (left, top) => $store.set('ouchn.control.position', { x: left, y: top }));
+	automation.subscribe(update);
+	update();
+}
 
 /**
  * 设置 MVP 播放器的倍速
@@ -44,9 +123,7 @@ function setPlaybackRate(rate: number) {
  */
 function getCurrentActivityName() {
 	const activeItem = document.querySelector('.full-screen-mode-sidebar-menu-item.active');
-	const titleEl = activeItem?.querySelector<HTMLElement>(
-		'.full-screen-mode-sidebar-menu-item-title .text-too-long'
-	);
+	const titleEl = activeItem?.querySelector<HTMLElement>('.full-screen-mode-sidebar-menu-item-title .text-too-long');
 	return titleEl?.innerText?.trim() || '未知';
 }
 
@@ -54,14 +131,30 @@ function getCurrentActivityName() {
  * 播放视频：先尝试点击 MVP 播放按钮，再调用原生 play
  */
 async function startPlayback(video: HTMLVideoElement) {
+	await automation.waitUntilRunning();
+	if (!video.paused || video.ended) return;
 	const playBtn = document.querySelector<HTMLElement>('.mvp-toggle-play');
 	if (playBtn) {
 		playBtn.click();
-		await $.sleep(500);
+		await automation.delay(500);
 	}
 	if (video.paused) {
-		await playMedia(() => video.play());
+		await playMedia(async () => {
+			await automation.waitUntilRunning();
+			await video.play();
+		});
 	}
+}
+
+/** Wait for media using active runtime, so pausing cannot exhaust its timeout. */
+async function waitForStudyVideo() {
+	for (let attempt = 0; attempt < 50; attempt++) {
+		await automation.waitUntilRunning();
+		const video = document.querySelector<HTMLVideoElement>('video.vjs-tech');
+		if (video && (video.readyState >= 2 || video.getAttribute('src'))) return video;
+		await automation.delay(200);
+	}
+	throw new Error('视频未找到，或者加载超时。');
 }
 
 /**
@@ -72,12 +165,9 @@ async function studyVideo(playbackRate: number, vol: number) {
 	$msg.info(`正在学习: ${name}`);
 
 	try {
-		const video = (await waitForMedia({
-			videoSelector: 'video.vjs-tech',
-			timeout: 10000,
-			filter: (v) => v.readyState >= 2 || !!v.getAttribute('src')
-		})) as HTMLVideoElement;
+		const video = await waitForStudyVideo();
 
+		await automation.waitUntilRunning();
 		state.study.currentMedia = video;
 
 		setPlaybackRate(playbackRate);
@@ -86,7 +176,7 @@ async function studyVideo(playbackRate: number, vol: number) {
 		await startPlayback(video);
 
 		const autoResume = () => {
-			if (state.study.paused) return;
+			if (automation.isPaused()) return;
 			if (!video.ended && video.paused) {
 				const playBtn = document.querySelector<HTMLElement>('.mvp-toggle-play');
 				if (playBtn) {
@@ -96,6 +186,10 @@ async function studyVideo(playbackRate: number, vol: number) {
 				}
 			}
 		};
+		const respectPause = () => {
+			if (automation.isPaused()) video.pause();
+		};
+		video.addEventListener('play', respectPause);
 		video.addEventListener('pause', autoResume);
 
 		await new Promise<void>((resolve) => {
@@ -103,6 +197,7 @@ async function studyVideo(playbackRate: number, vol: number) {
 				'ended',
 				() => {
 					video.removeEventListener('pause', autoResume);
+					video.removeEventListener('play', respectPause);
 					resolve();
 				},
 				{ once: true }
@@ -134,6 +229,7 @@ async function browserNotify(title: string, body: string) {
  * @returns true 跳转成功，false 所有任务已完成
  */
 async function goNext() {
+	await automation.waitUntilRunning();
 	const nextBtn = document.querySelector<HTMLButtonElement>('.next-btn');
 	if (!nextBtn) {
 		const errMsg = '未找到"下一个"按钮，学习已停止，请检查页面';
@@ -150,31 +246,25 @@ async function goNext() {
 	// Compare activity identity, not DOM node identity: Vue may reuse or recreate nodes.
 	const activityKey = (item: Element | null) =>
 		item
-			? [
-					item.id,
-					item.getAttribute('data-id'),
-					item.getAttribute('data-activity-id'),
-					item.textContent?.trim()
-				].join('|')
+			? [item.id, item.getAttribute('data-id'), item.getAttribute('data-activity-id'), item.textContent?.trim()].join(
+					'|'
+			  )
 			: '';
-	const prevActiveKey = activityKey(
-		document.querySelector('.full-screen-mode-sidebar-menu-item.active')
-	);
+	const prevActiveKey = activityKey(document.querySelector('.full-screen-mode-sidebar-menu-item.active'));
 	const prevHash = location.hash;
 	const prevVideo = document.querySelector<HTMLVideoElement>('video.vjs-tech');
 	const prevVideoSrc = prevVideo?.currentSrc || prevVideo?.getAttribute('src') || '';
 
+	await automation.waitUntilRunning();
 	nextBtn.click();
 	$msg.info('正在跳转下一个任务...');
 
 	let attempts = 0;
 	while (attempts < 20) {
-		await $.sleep(1000);
-		const currentActive = document.querySelector(
-			'.full-screen-mode-sidebar-menu-item.active'
-		);
+		await automation.delay(1000);
+		const currentActive = document.querySelector('.full-screen-mode-sidebar-menu-item.active');
 		if (currentActive && activityKey(currentActive) !== prevActiveKey) {
-			await $.sleep(1000);
+			await automation.delay(1000);
 			return true;
 		}
 		const videoEl = document.querySelector<HTMLVideoElement>('video.vjs-tech');
@@ -186,7 +276,7 @@ async function goNext() {
 			videoEl.readyState >= 2 &&
 			(videoEl !== prevVideo || (videoSrc !== '' && videoSrc !== prevVideoSrc))
 		) {
-			await $.sleep(1000);
+			await automation.delay(1000);
 			return true;
 		}
 		attempts++;
@@ -224,14 +314,18 @@ function ouchnExamWork({ answererWrappers, period, thread, answerSeparators, ans
 		thread: thread ?? 1,
 		answerSeparators: answerSeparators.split(',').map((s) => s.trim()),
 		answerMatchMode,
-		answerer: (elements, ctx) => {
+		answerer: async (elements, ctx) => {
+			await automation.waitUntilRunning();
 			const title = titleTransform(elements.title);
 			if (title) {
 				const typeNames: Record<string, string> = {
-					single: '单选题', multiple: '多选题', judgement: '判断题', completion: '填空题'
+					single: '单选题',
+					multiple: '多选题',
+					judgement: '判断题',
+					completion: '填空题'
 				};
 				return CommonProject.scripts.apps.methods.searchAnswerInCaches(title, async () => {
-					await $.sleep((period ?? 3) * 1000);
+					await automation.delay((period ?? 3) * 1000);
 					return defaultAnswerWrapperHandler(answererWrappers, {
 						type: typeNames[ctx.type || ''] || ctx.type || '未知题型',
 						title,
@@ -253,7 +347,9 @@ function ouchnExamWork({ answererWrappers, period, thread, answerSeparators, ans
 				}
 				return undefined;
 			},
-			handler(type, answer, option) {
+			async handler(type, answer, option) {
+				await automation.waitUntilRunning();
+				if (worker.isClose) return;
 				if (type === 'single' || type === 'judgement' || type === 'multiple') {
 					const input = option.querySelector<HTMLInputElement>('input');
 					if (input && !input.checked) {
@@ -274,14 +370,13 @@ function ouchnExamWork({ answererWrappers, period, thread, answerSeparators, ans
 		onResultsUpdate(curr, _, res) {
 			CommonProject.scripts.workResults.methods.setResults(simplifyWorkResult(res, titleTransform));
 			if (curr.result?.finish) {
-				CommonProject.scripts.apps.methods.addQuestionCacheFromWorkResult(
-					simplifyWorkResult([curr], titleTransform)
-				);
+				CommonProject.scripts.apps.methods.addQuestionCacheFromWorkResult(simplifyWorkResult([curr], titleTransform));
 			}
 			CommonProject.scripts.workResults.methods.updateWorkStateByResults(res);
 		}
 	});
 
+	state.worker = worker;
 	worker
 		.doWork({ enable_debug: BackgroundProject.scripts.dev.cfg.enable_answerer_debug })
 		.then(() => {
@@ -296,6 +391,7 @@ function ouchnExamWork({ answererWrappers, period, thread, answerSeparators, ans
 			browserNotify('国开考试：答题出错', errMsg).catch(() => {});
 		});
 
+	if (automation.isPaused()) worker.emit('stop');
 	return worker;
 }
 
@@ -307,15 +403,20 @@ export const OUHNProject = Project.create({
 			name: '💡 使用提示',
 			matches: [['国开所有页面', 'lms.ouchn.cn']],
 			namespace: 'ouchn.guide-v1',
+			onstart() {
+				initializeAutomationControl();
+			},
 			configs: {
 				notes: {
 					defaultValue: $ui.notes([
 						'手动进入任意课程的视频/课件页面，即可开始自动学习。',
-						'支持视频倍速播放、静音播放、自动跳转下一个任务。'
+						'支持视频倍速播放、静音播放、自动跳转下一个任务。',
+						'使用独立控制条暂停/继续；按住 ⠿ 拖动窗口或控制条。'
 					]).outerHTML
 				}
 			},
 			oncomplete() {
+				mountAutomationToolbar();
 				if (document.querySelector('.full-screen-mode-wrapper')) {
 					$msg.info('已进入学习页面，等待自动运行...');
 					return;
@@ -360,27 +461,20 @@ export const OUHNProject = Project.create({
 
 						try {
 							while (true) {
+								await automation.waitUntilRunning();
 								if (!document.querySelector('.full-screen-mode-wrapper')) {
 									$msg.warn('已离开学习页面，脚本停止');
 									break;
 								}
 
-								// 直接等视频元素出现（最多10秒），不依赖侧栏图标
-								const videoEl = await waitForElement('video.vjs-tech', { timeout_seconds: 10 });
-								if (videoEl) {
-									const rate = parseFloat(this.cfg.playbackRate?.toString() || '1');
-									const vol = this.cfg.volume ?? 0;
-									await studyVideo(rate, vol);
-								} else {
-									const name = getCurrentActivityName();
-									$msg.info(`非视频资源，跳过: ${name}`);
-									await $.sleep(3000);
-								}
+								const rate = parseFloat(this.cfg.playbackRate?.toString() || '1');
+								const vol = this.cfg.volume ?? 0;
+								await studyVideo(rate, vol);
 
 								const hasNext = await goNext();
 								if (!hasNext) break;
 
-								await $.sleep(1000);
+								await automation.delay(1000);
 							}
 						} catch (err) {
 							const errMsg = `学习脚本发生异常：${err instanceof Error ? err.message : String(err)}`;
@@ -447,7 +541,7 @@ export const OUHNProject = Project.create({
 					getCourseId,
 					init: async () => {
 						await waitForElement('.learning-activity', { timeout_seconds: 20 });
-						await $.sleep(1500);
+						await automation.delay(1500);
 
 						const result = findFirstIncompleteVideo();
 						if (!result) {
@@ -478,14 +572,28 @@ export const OUHNProject = Project.create({
 							btn.id = 'ocs-course-nav-btn';
 							btn.textContent = `▶ 前往第一个未完成视频（共 ${totalVideos} 个）`;
 							btn.style.cssText = [
-								'position:fixed', 'bottom:20px', 'left:50%',
-								'transform:translateX(-50%)', 'z-index:9998',
-								'padding:10px 24px', 'background:#19be6b', 'color:#fff',
-								'border:none', 'border-radius:6px', 'cursor:pointer',
-								'font-size:14px', 'box-shadow:0 2px 12px rgba(0,0,0,.25)',
-								'white-space:nowrap', 'line-height:1.5'
+								'position:fixed',
+								'bottom:20px',
+								'left:50%',
+								'transform:translateX(-50%)',
+								'z-index:9998',
+								'padding:10px 24px',
+								'background:#19be6b',
+								'color:#fff',
+								'border:none',
+								'border-radius:6px',
+								'cursor:pointer',
+								'font-size:14px',
+								'box-shadow:0 2px 12px rgba(0,0,0,.25)',
+								'white-space:nowrap',
+								'line-height:1.5'
 							].join(';');
-							btn.onclick = () => {
+							btn.disabled = automation.isPaused();
+							automation.subscribe((paused) => {
+								btn.disabled = paused;
+							});
+							btn.onclick = async () => {
+								await automation.waitUntilRunning();
 								btn.remove();
 								location.href = url;
 							};
@@ -494,7 +602,7 @@ export const OUHNProject = Project.create({
 
 						if (this.cfg.autoJump && courseId) {
 							$msg.info('3 秒后自动跳转...');
-							await $.sleep(3000);
+							await automation.delay(3000);
 							document.getElementById('ocs-course-nav-btn')?.remove();
 							location.href = url;
 						}
@@ -525,6 +633,7 @@ export const OUHNProject = Project.create({
 					if (!el) return;
 					CommonProject.scripts.render.methods.pin(this);
 					commonWork(this, {
+						beforeRunning: () => automation.waitUntilRunning(),
 						workerProvider: (opts) => ouchnExamWork(opts)
 					});
 				});

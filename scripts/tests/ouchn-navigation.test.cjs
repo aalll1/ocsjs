@@ -21,7 +21,7 @@ async function run(change, disabled = false) {
       throw new Error('Unexpected selector: ' + selector);
     } },
     location: { get hash() { return page.hash; } },
-    $: { async sleep() { page.ticks++; if (change) change(page); } },
+    automation: { async waitUntilRunning() {}, async delay() { page.ticks++; if (change) change(page); } },
     $msg: { info() {}, success() {}, error() {} },
     browserNotify: async () => {}
   };
