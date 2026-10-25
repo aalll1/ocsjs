@@ -180,25 +180,34 @@ test('drag grip returns after header rendering without duplicate bindings', asyn
     header.textContent='';await flush();assert.equal(header.querySelectorAll('.ocs-drag-handle').length,1);
   } finally { w.close(); }
 });
-test('toolbar reflects saved pause and persists changes across reloads', async () => {
-  const { w, enablePanelDrag } = domFixture();
+test('integrated pause button persists state and returns after header rendering', async () => {
+  const { w } = domFixture();
   try {
-    const store=new Map([['ouchn.automation.paused',true],['ouchn.control.position',{x:0,y:0}]]),roots=[];
-    const attach=w.Element.prototype.attachShadow;
-    w.Element.prototype.attachShadow=function(opts){const root=attach.call(this,opts);roots.push(root);return root;};
-    const c=control(), context={
+    const { installAutomationPanel } = loadUtility('panel-controls', ['installAutomationPanel'], { MutationObserver: w.MutationObserver });
+    const host=w.document.createElement('div');w.document.body.append(host);
+    const root=host.attachShadow({mode:'open'}),container=w.document.createElement('container-element'),header=w.document.createElement('header-element');
+    header.innerHTML='<div><span class="profile">OCS</span><span class="switch">-</span></div>';
+    container.append(header);root.append(container);
+    const store=new Map([['ouchn.automation.paused',true]]), c=control();
+    const context={
       automation:c,controlInitialized:false,pauseKey:'ouchn.automation.paused',
       $store:{get:(k,d)=>store.has(k)?store.get(k):d,set:(k,v)=>store.set(k,v),addChangeListener(){}},
-      state:{study:{}},document:w.document,self:w,top:w,innerWidth:w.innerWidth,innerHeight:w.innerHeight,
-      HTMLMediaElement:w.HTMLMediaElement,enablePanelDrag
+      state:{study:{}},document:w.document,HTMLMediaElement:w.HTMLMediaElement
     };
     realFunction('initializeAutomationControl',context)();
-    const mount=realFunction('mountAutomationToolbar',context);mount();mount();
-    assert.equal(w.document.querySelectorAll('#ocs-ouchn-control').length,1);
-    assert.equal(w.document.getElementById('ocs-ouchn-control').style.left,'0px');
-    const button=roots[0].querySelector('button');assert.equal(button.textContent,'▶ 继续运行');
+    installAutomationPanel(root,c);installAutomationPanel(root,c);
+    const button=root.querySelector('.ocs-automation-control');
+    assert.equal(root.querySelectorAll('.ocs-automation-control').length,1);
+    assert.equal(w.document.querySelector('#ocs-ouchn-control'),null);
+    assert.equal(button.nextElementSibling.className,'switch');
+    assert.equal(button.textContent,'▶ 继续');
     button.click();assert.equal(c.isPaused(),false);assert.equal(store.get('ouchn.automation.paused'),false);
-    button.click();assert.equal(c.isPaused(),true);assert.equal(store.get('ouchn.automation.paused'),true);
+    header.innerHTML='<div><span class="profile">Other panel</span><span class="switch">-</span></div>';
+    await flush();assert.equal(root.querySelector('.ocs-automation-control'),button);
+    assert.equal(root.querySelectorAll('.ocs-automation-control').length,1);
+    container.classList.add('minimize');button.click();
+    assert.equal(c.isPaused(),true);assert.equal(store.get('ouchn.automation.paused'),true);
+    assert.equal(button.getAttribute('aria-pressed'),'true');
     const next=control();realFunction('initializeAutomationControl',{...context,automation:next,controlInitialized:false})();
     assert.equal(next.isPaused(),true);
   } finally { w.close(); }

@@ -1,7 +1,7 @@
 import { $, OCSWorker, defaultAnswerWrapperHandler } from '@ocsjs/core';
-import { Project, Script, $ui, $message, $store } from 'easy-us';
+import { Project, Script, $ui, $message, $store, $elements } from 'easy-us';
 import { createAutomationControl } from '../utils/automation-control';
-import { enablePanelDrag } from '../utils/panel-drag';
+import { installAutomationPanel } from '../utils/panel-controls';
 import { playMedia, $msg, CommonWorkOptions } from '../utils';
 import { CommonProject } from './common';
 import { BackgroundProject } from './background';
@@ -59,43 +59,11 @@ function initializeAutomationControl() {
 	);
 }
 
-function mountAutomationToolbar() {
-	if (self !== top || document.getElementById('ocs-ouchn-control')) return;
-	const host = document.createElement('div');
-	host.id = 'ocs-ouchn-control';
-	const saved = $store.get('ouchn.control.position', { x: 12, y: 12 });
-	const savedX = Number(saved?.x);
-	const savedY = Number(saved?.y);
-	const x = Math.max(0, Math.min(Number.isFinite(savedX) ? savedX : 12, Math.max(0, innerWidth - 270)));
-	const y = Math.max(0, Math.min(Number.isFinite(savedY) ? savedY : 12, Math.max(0, innerHeight - 40)));
-	host.style.cssText = `position:fixed!important;left:${x}px;top:${y}px;z-index:2147483647!important`;
-	const root = host.attachShadow({ mode: 'closed' });
-	const bar = document.createElement('div');
-	bar.style.cssText =
-		'display:flex;align-items:center;gap:8px;padding:8px;background:#fff;color:#222;border:1px solid #aaa;border-radius:8px;box-shadow:0 2px 10px #0003;font:14px sans-serif';
-	const grip = document.createElement('span');
-	grip.textContent = '⠿ 国开脚本';
-	grip.title = '按住拖动控制条';
-	grip.style.cssText = 'cursor:move;user-select:none;white-space:nowrap';
-	const status = document.createElement('span');
-	const button = document.createElement('button');
-	button.type = 'button';
-	button.style.cssText =
-		'cursor:pointer;border:0;border-radius:5px;padding:7px 10px;color:white;font:inherit;white-space:nowrap';
-	const update = () => {
-		const paused = automation.isPaused();
-		status.textContent = paused ? '已暂停' : '运行中';
-		button.textContent = paused ? '▶ 继续运行' : '⏸ 暂停全部';
-		button.style.background = paused ? '#16803c' : '#b42318';
-		button.setAttribute('aria-pressed', String(paused));
-	};
-	button.onclick = () => automation.setPaused(!automation.isPaused());
-	bar.append(grip, status, button);
-	root.append(bar);
-	document.documentElement.append(host);
-	enablePanelDrag(host, grip, (left, top) => $store.set('ouchn.control.position', { x: left, y: top }));
-	automation.subscribe(update);
-	update();
+function mountAutomationPanel() {
+	if (self !== top) return;
+	// Remove the old detached control if a script manager hot-reloads this version.
+	document.getElementById('ocs-ouchn-control')?.remove();
+	if ($elements.root) installAutomationPanel($elements.root, automation);
 }
 
 /**
@@ -411,12 +379,12 @@ export const OUHNProject = Project.create({
 					defaultValue: $ui.notes([
 						'手动进入任意课程的视频/课件页面，即可开始自动学习。',
 						'支持视频倍速播放、静音播放、自动跳转下一个任务。',
-						'使用独立控制条暂停/继续；按住 ⠿ 拖动窗口或控制条。'
+						'使用面板标题栏的暂停/继续按钮；按住 ⠿ 拖动窗口。'
 					]).outerHTML
 				}
 			},
 			oncomplete() {
-				mountAutomationToolbar();
+				mountAutomationPanel();
 				if (document.querySelector('.full-screen-mode-wrapper')) {
 					$msg.info('已进入学习页面，等待自动运行...');
 					return;

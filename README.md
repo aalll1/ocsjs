@@ -15,7 +15,7 @@
  
 <div align="center">
 
-## 当前版本：4.14.11
+## 当前版本：4.14.12
 
 本仓库是 [ocsjs/ocsjs](https://github.com/ocsjs/ocsjs) 的维护分支，保留上游 MIT 许可及作者信息，主要维护国开平台适配。
 
@@ -23,7 +23,7 @@
 
 [下载正式脚本](https://github.com/aalll1/ocsjs/releases/latest/download/ocs.user.js) · [全部发布文件](https://github.com/aalll1/ocsjs/releases/latest) · [问题反馈](https://github.com/aalll1/ocsjs/issues)
 
-下载后通过 Tampermonkey 或脚本猫安装。国开页面上的独立控制条可随时暂停或继续；按住“⠿”拖动窗口或控制条。暂停状态会保留，需点击“继续运行”才恢复。题库与 AI 服务需要自行配置；国开答题模块仍为测试版，当前版本尚未完成实际答题流程验证。
+下载后通过 Tampermonkey 或脚本猫安装。国开脚本面板标题栏中的“暂停 / 继续”按钮可控制运行，最小化面板后仍可使用；按住“⠿”拖动窗口。暂停状态会保留，需点击“继续”才恢复。题库与 AI 服务需要自行配置；国开答题模块仍为测试版，当前版本尚未完成实际答题流程验证。
 
 ## 官网及教程 [https://docs.ocsjs.com](https://docs.ocsjs.com)
 
@@ -40,6 +40,12 @@
 | **国开** | **lms.ouchn.cn** |
 
 ## 更新日志
+
+### v4.14.12 (2026-10-25)
+
+- 将暂停/继续按钮集成到原面板标题栏，移除页面上的独立控制条。
+- 切换面板、标题栏重绘或最小化后仍可暂停/继续，保留暂停状态记忆与窗口拖动。
+
 
 ### v4.14.11 (2026-10-25)
 
