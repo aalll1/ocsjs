@@ -9,7 +9,7 @@ import { waitForElement } from '../utils/study';
 import { playbackRate, volume, restudy } from '../utils/configs';
 import { commonWork, simplifyWorkResult } from '../utils/work';
 import { getChoiceQuestionType, readChoiceQuestion } from '../utils/choice-question';
-import { readLearningResource, isVisible } from '../utils/resource-reader';
+import { readLearningResource, isVisible, waitForLearningActivity } from '../utils/resource-reader';
 import { ExamSession, recordExamResult, readExamScore, canSubmitExam } from '../utils/ouchn-exam-flow';
 
 /**
@@ -646,8 +646,8 @@ export const OUHNProject = Project.create({
 
 								const rate = parseFloat(this.cfg.playbackRate?.toString() || '1');
 								const vol = this.cfg.volume ?? 0;
-								const active = document.querySelector('.full-screen-mode-sidebar-menu-item.active');
-								if (active?.querySelector('.font-syllabus-exam') || /exam\/\d+/.test(location.hash)) {
+								const activityType = await waitForLearningActivity(document, automation, () => location.hash);
+								if (activityType === 'exam') {
 									const session = examSession(true);
 									if (!session) throw new Error('无法识别测验编号，停止切换。');
 									saveExamSession(session);
@@ -665,14 +665,9 @@ export const OUHNProject = Project.create({
 											break;
 										}
 									}
-								} else if (
-									active?.querySelector('.font-syllabus-online-video') ||
-									(!active && document.querySelector('video.vjs-tech'))
-								) {
+								} else if (activityType === 'video') {
 									await studyVideo(rate, vol);
-								} else if (
-									active?.querySelector('.font-syllabus-page, .font-syllabus-material, .font-syllabus-slide')
-								) {
+								} else if (activityType === 'resource') {
 									$msg.info('正在逐段阅读图文/课件，读到末尾后进入下一项...');
 									await readLearningResource(document, automation, () => Number(this.cfg.readingSpeed));
 								} else throw new Error('不支持的资源类型，已停止，未跳过。');

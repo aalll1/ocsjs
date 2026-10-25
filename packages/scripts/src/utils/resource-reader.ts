@@ -8,6 +8,36 @@ export function readingInterval(speed: number) {
 	return 700 / multiplier;
 }
 
+/** The Vue shell renders before the active activity and Angular article. */
+export async function waitForLearningActivity(doc: Document, control: ReadingControl, getHash: () => string) {
+	let sawUnsupported = false;
+	for (let attempt = 0; attempt < 60; attempt++) {
+		await control.waitUntilRunning();
+		if (!doc.querySelector('.full-screen-mode-wrapper')) throw new Error('已离开学习页面。');
+		const active = doc.querySelector('.full-screen-mode-sidebar-menu-item.active');
+		if (/exam\/\d+/.test(getHash())) return 'exam' as const;
+		if (active?.querySelector('.font-syllabus-exam')) {
+			// The sidebar can select the exam before its route is ready.
+			await control.delay(500);
+			continue;
+		}
+		if (active?.querySelector('.font-syllabus-online-video')) return 'video' as const;
+		if (active?.querySelector('.font-syllabus-page, .font-syllabus-material, .font-syllabus-slide')) {
+			const article = doc.querySelector(
+				'.full-screen-mode-main .page-content, .full-screen-mode-main .activity-content, .full-screen-mode-main .rich-text, .full-screen-mode-main .content-body, .full-screen-mode-main article'
+			);
+			const viewer = doc.querySelector(
+				'.full-screen-mode-main table a, .full-screen-mode-main iframe[src]:not([src="about:blank"]):not([src=""])'
+			);
+			if (article?.textContent?.trim() || viewer) return 'resource' as const;
+		} else if (active?.querySelector('.activity-type-icon')) sawUnsupported = true;
+		await control.delay(500);
+	}
+	throw new Error(
+		sawUnsupported ? '不支持的资源类型，已停止，未跳过。' : '资源内容加载超时，请刷新后重试，未跳过该资源。'
+	);
+}
+
 /** Read a scroll surface in small steps, rechecking lazy-loaded height at the bottom. */
 export async function readScrollSurface(
 	surface: HTMLElement,
