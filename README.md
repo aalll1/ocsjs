@@ -19,6 +19,8 @@
 
 本仓库是 [ocsjs/ocsjs](https://github.com/ocsjs/ocsjs) 的维护分支，保留上游 MIT 许可及作者信息，主要维护国开平台适配。
 
+本维护分支在 AI 工具的辅助下开发与维护，AI 参与代码编写、问题排查、测试和文档整理。上游项目及原作者的署名与 MIT 许可予以保留。
+
 [下载正式脚本](https://github.com/aalll1/ocsjs/releases/latest/download/ocs.user.js) · [全部发布文件](https://github.com/aalll1/ocsjs/releases/latest) · [问题反馈](https://github.com/aalll1/ocsjs/issues)
 
 下载后通过 Tampermonkey 或脚本猫安装。题库与 AI 服务需要自行配置；国开答题模块仍为测试版，当前版本尚未完成实际答题流程验证。
